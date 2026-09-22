@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-scratcher"
+version = "0.1.0"
+description = "AI-Scratcher: Synergy Context Gate tree toolkit and the Synthetic AI agent"
+readme = "README.md"
+license = {file = "LICENSE.md"}
+requires-python = ">=3.10"
+dependencies = ["pyyaml", "jinja2"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+syngate = "ai_scratcher.syngate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ai_scratcher = ["syngate_ui.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

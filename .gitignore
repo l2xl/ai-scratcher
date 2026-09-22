@@ -1,0 +1,7 @@
+__pycache__/
+*.egg-info/
+.venv*/
+syngate_coverage.jsonl
+pytest-coverage.jsonl
+syngate_status.json
+site/

@@ -1,0 +1,5 @@
+header: Syngate UI
+description: |
+  Local browser UI of the syngate tree.
+parents: [AI-SCRATCHER]
+order: 10
