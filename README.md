@@ -1,7 +1,7 @@
 # AI-Scratcher
 
 Product architecture analysis and synthesis toolkit for any git project, made of the **Synergy
-Context Gate (syngate)** tree toolkit and the **Synthetic** AI agent. The tree of item files under
+Context Gate (syngate)** tree toolkit and its AI agent. The tree of item files under
 the managed project's `syngate/` folder is the single source of truth — the product's features,
 architecture and contracts decomposed into items that serve both as the context fed to AI-driven
 work and as the TDD gate every bound test is frozen against. This repository is itself a managed
@@ -17,7 +17,9 @@ syngate ui
 
 The Python package is `ai_scratcher` (`syngatelib` library, `syngate` CLI, `syngate_ui` local
 editor, `synthetic` agent, `check_self_approval`, `render_syngate_report`); any modern Python
-(3.10+) with `pyyaml` and `jinja2`. Toolkit tests: `pip install -e .[test]` then `pytest`.
+(3.10+) with `pyyaml`, `jinja2` and `pytest` — pytest is a runtime dependency, not a dev extra:
+`syngate test`/`review` run a managed project's pytest bindings with the toolkit's own interpreter.
+Toolkit tests: `pip install -e .` then `pytest`.
 
 **Managed project root**: `--root PATH` on any command, else the `SYNGATE_ROOT` environment
 variable, else the nearest ancestor of the working directory holding a `syngate/` folder. Test

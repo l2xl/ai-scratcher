@@ -1,4 +1,4 @@
 header: AI-Scratcher
 description: |
-  Product architecture analysis and synthesis toolkit: the Synergy Context Gate tree, its TDD gate and local editor, and the Synthetic AI agent that works from the tree's context.
+  Product architecture analysis and synthesis toolkit: the Synergy Context Gate tree, its TDD gate and local editor, and its AI agent that works from the tree's context.
 parents: []
