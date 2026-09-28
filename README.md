@@ -211,20 +211,30 @@ Coverage gaps are deliberately not item problems: an unrun binding already rolls
   / `gate: FAILED`) is captured into `syngate_validate.log` and folded into the top of both the job
   summary and the check run, so the reason for the red is read off the report itself.
 
-# History
+# Contributing
 
-- **2026-07-20** — converted from Doorstop by `scripts/migrate_doorstop.py` (one-shot; kept for
-  reference) into the self-owned `reqlib` / `req.py` requirements toolkit. All review stamps were
-  dropped at conversion and re-stamped by the user as bindings landed. `scripts/import_requirements.py`
-  still targets the old schema and must be retargeted before the full `requirements_plan.md`
-  re-import. The pre-refactor Doorstop documentation lives in this file's git history; the refactor
-  design plan is [refactor_plan_2026-07-20.md](refactor_plan_2026-07-20.md).
-- **2026-09-18** — refocused from requirements management to product architecture analysis and
-  synthesis support, and renamed to Synergy Context Gate: `req/` → `syngate/`, `reqlib.py` →
-  `syngatelib.py`, `req.py` → `syngate.py`, `req_ui.*` → `syngate_ui.*`, `@pytest.mark.req` →
-  `@pytest.mark.syngate`, `REQ_COVERAGE_FILE` → `SYNGATE_COVERAGE_FILE`, `.venv-req` → `.venv-syngate`.
-- **2026-09-23** — moved out of the Open Trader repository into this one as **AI-Scratcher**
-  (package `ai_scratcher`), together with the toolkit's own items; Open Trader consumes it as a
-  package (`ci/venv.sh`) and keeps thin `scripts/syngate.py` / `scripts/check_self_approval.py`
-  shims. The managed project root is now resolved explicitly (`--root` / `SYNGATE_ROOT` / upward
-  search) instead of from the script location.
+The toolkit manages its own tree: `syngate/` in this repository holds AI-Scratcher's requirement
+items, bound to `tests/` through `@pytest.mark.syngate`. Develop against an editable install, so the
+UI and CLI run the working copy rather than an installed snapshot:
+
+```
+python3 -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/syngate ui                  # http://127.0.0.1:8712, tree = this checkout
+```
+
+`syngate` takes the managed project from `--root`, else `SYNGATE_ROOT`, else the nearest ancestor of
+the working directory holding `syngate/` — started from this checkout it edits this tree, started
+from a managed project's checkout the same install edits that project's tree. The rest of the loop:
+
+```
+.venv/bin/syngate validate            # this tree: structural + frozen-routine checks
+.venv/bin/syngate test 'SYNGATE_UI-*' # bound routines of matching leaves, without stamping
+.venv/bin/pytest                      # the toolkit's whole test suite (tests/)
+```
+
+`review`/`clear` are user-only here as in any managed project. A managed project's own provisioning
+(e.g. Open Trader's `<build dir>/ai-scratcher-venv`) also carries the `syngate` entry point, so
+`<that venv>/bin/syngate ui` run from this checkout works too — against the fetched snapshot of the
+package, not the working copy.
+
