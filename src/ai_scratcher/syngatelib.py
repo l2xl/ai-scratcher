@@ -12,8 +12,13 @@ UID is the file stem; folders carry no semantics. Item schema:
       free-form prose
     parents: [UID, ...]        # DAG edges; exactly one item in the tree has none
     order: 10                  # optional presentation-only sibling sort key
-    tests: ~ | <sha> | {name: sha|~, ...}   # leaf test bindings; absent on branches
-    reviewed: <sha256 hex>     # user-only approval stamp, or absent
+    test: ~ | <sha> | {name: sha|~, ...}   # test bindings; absent on items without own tests
+    review: <sha256 hex>       # user-only approval stamp, or absent
+
+The old spellings `tests` / `reviewed` are read as the same keys. On the root
+item (empty parents) `test: enabled|disabled` and `review: enabled|disabled`
+switch the tree's test and review features; both are off when absent, and a
+root's own binding or stamp switches its feature on as well.
 
 A binding is identified purely by tags: the default binding is the `[UID]` tag
 alone, a named binding is the `[UID][name]` tag pair (binding name immediately
@@ -21,10 +26,12 @@ after the UID tag; item tags go last in the tag list). Test locations are
 discovered from tags at check time, never declared in items.
 
 The reviewed stamp is transparent: sha256 hex over the canonical JSON
-    {"description": ..., "header": ..., "parents": [...], "tests": {name: sha} | null}
+    {"children": [UID, ...], "description": ..., "header": ..., "parents": [...], "tests": {name: sha} | null}
 serialized with sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-UTF-8 encoded (default binding name is ""; unstamped shas are ""). Verify with:
-    python3 -c 'import syngatelib,sys; print(syngatelib.compute_stamp(syngatelib.load_tree()[0][sys.argv[1]]))' <UID>
+UTF-8 encoded (default binding name is ""; unstamped shas are ""). "children"
+holds the immediate child UIDs and is present only for an item that has any, so
+adding or removing a child moves its parent's stamp. Verify with:
+    python3 -c 'import syngatelib,sys; items,_=syngatelib.load_tree(); print(syngatelib.item_stamp(items, sys.argv[1]))' <UID>
 
 Coverage joins `syngate_coverage.jsonl` records `{"tags": [...], "passed": bool}`
 (optional "name"/"log") emitted by the pytest conftest hook and the Catch2
@@ -34,6 +41,7 @@ listener against the items' `tests` bindings.
 import ast
 import hashlib
 import json
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -73,7 +81,9 @@ SYNGATE_DIR = ROOT / "syngate"
 UID_RE = re.compile(r"^[A-Z][A-Z_]*(-[A-Z0-9_]+)*$")
 BINDING_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
-KNOWN_FIELDS = {"header", "description", "parents", "order", "tests", "reviewed"}
+KNOWN_FIELDS = {"header", "description", "parents", "order", "test", "review", "tests", "reviewed"}
+FEATURES = ("test", "review")
+SWITCH = {"enabled": True, "disabled": False}
 
 PY_TEST_DIRS = ("scripts/tests", "tests")
 CPP_TEST_DIRS = ("test",)
@@ -102,10 +112,20 @@ class Item:
     tests: dict = None  # None = branch (no tests key); {name|None: sha|None} otherwise
     reviewed: str = None
     folder: str = ""
+    features: dict = field(default_factory=lambda: dict.fromkeys(FEATURES, False))  # the tree's switches, read off the root item only
 
     @property
     def is_leaf(self):
         return self.tests is not None
+
+
+def features(items):
+    """{"test": bool, "review": bool} -- the tree's feature switches declared on its root item, both off when absent."""
+    switches = dict.fromkeys(FEATURES, False)
+    for item in items.values():
+        if not item.parents:
+            switches.update((feature, switches[feature] or on) for feature, on in item.features.items())
+    return switches
 
 
 @dataclass
@@ -135,6 +155,41 @@ def _parse_sha(sha, errors, uid):
         errors.append(f"{uid}: invalid routine sha {sha!r}")
         return None
     return sha
+
+
+def _parse_stamp(value, errors, uid):
+    if value is None:
+        return None
+    if not isinstance(value, str) or not SHA_RE.match(value):
+        errors.append(f"{uid}: 'review' must be a sha256 hex stamp")
+        return None
+    return value
+
+
+def _keyed(data, key, legacy, errors, uid):
+    """(present, value) of `key`, or of its old spelling `legacy`."""
+    if key in data and legacy in data:
+        errors.append(f"{uid}: both '{key}' and its old spelling '{legacy}'")
+    for name in (key, legacy):
+        if name in data:
+            return True, data[name]
+    return False, None
+
+
+def _read_feature(item, data, key, legacy, parse, errors):
+    """A switch word on the root item sets the feature; any other present value is the item's own binding or stamp, which on the root switches its feature on."""
+    present, value = _keyed(data, key, legacy, errors, item.uid)
+    if not present:
+        return None
+    if isinstance(value, str) and value in SWITCH:
+        if item.parents:
+            errors.append(f"{item.uid}: '{key}: {value}' switches the feature on the root item only")
+        else:
+            item.features[key] = SWITCH[value]
+        return None
+    if not item.parents:
+        item.features[key] = True
+    return parse(value, errors, item.uid)
 
 
 def load_tree(syngate_dir=None):
@@ -171,13 +226,8 @@ def load_tree(syngate_dir=None):
             errors.append(f"{uid}: 'order' must be a number")
             order = 0
         item.order = order
-        if "tests" in data:
-            item.tests = _parse_tests(data["tests"], errors, uid)
-        reviewed = data.get("reviewed")
-        if reviewed is not None and (not isinstance(reviewed, str) or not SHA_RE.match(reviewed)):
-            errors.append(f"{uid}: 'reviewed' must be a sha256 hex stamp")
-            reviewed = None
-        item.reviewed = reviewed
+        item.tests = _read_feature(item, data, "test", "tests", _parse_tests, errors)
+        item.reviewed = _read_feature(item, data, "review", "reviewed", _parse_stamp, errors)
         items[uid] = item
     return items, errors
 
@@ -223,16 +273,26 @@ def walk(items, anchor=None, descendants=False):
     return selected
 
 
-def stamp_payload(item):
+def stamp_payload(item, children=()):
     tests = None
     if item.tests is not None:
         tests = {name or "": sha or "" for name, sha in item.tests.items()}
-    return {"description": item.description, "header": item.header, "parents": list(item.parents), "tests": tests}
+    payload = {"description": item.description, "header": item.header, "parents": list(item.parents), "tests": tests}
+    # Only when the item has children, so a childless item's stamp is the one it
+    # always was; it is what makes a child added or removed move its parent's stamp.
+    if children:
+        payload["children"] = sorted(children)
+    return payload
 
 
-def compute_stamp(item):
-    canonical = json.dumps(stamp_payload(item), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+def compute_stamp(item, children=()):
+    canonical = json.dumps(stamp_payload(item, children), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def item_stamp(items, uid):
+    """`compute_stamp` for an item of a loaded tree, over its immediate children."""
+    return compute_stamp(items[uid], children_map(items)[uid])
 
 
 def layout_problems(items):
@@ -246,9 +306,14 @@ def layout_problems(items):
     problems = []
     children = children_map(items)
     roots = []
+    switches = features(items)
     for uid, item in sorted(items.items()):
         if not UID_RE.match(uid):
             problems.append((uid, f"{uid}: file stem is not a valid UID"))
+        if item.is_leaf and not switches["test"]:
+            problems.append((uid, f"{uid}: test bindings while the tree's test feature is off (root item: 'test: enabled')"))
+        if item.reviewed and not switches["review"]:
+            problems.append((uid, f"{uid}: review stamp while the tree's review feature is off (root item: 'review: enabled')"))
         for parent in item.parents:
             if parent == uid:
                 problems.append((uid, f"{uid}: links to itself"))
@@ -269,13 +334,13 @@ def layout_problems(items):
 def review_problems(items):
     """[(uid, message)] -- each item's own user-approval state: a stamp that no
     longer matches its content, or a reviewed binding with no stamped sha."""
-    problems = []
+    problems, children = [], children_map(items)
     for uid, item in sorted(items.items()):
         if not item.reviewed:
             continue
         if item.is_leaf and any(sha is None for sha in item.tests.values()):
             problems.append((uid, f"{uid}: reviewed but a binding has no stamped routine sha"))
-        elif compute_stamp(item) != item.reviewed:
+        elif compute_stamp(item, children[uid]) != item.reviewed:
             problems.append((uid, f"{uid}: reviewed stamp does not match item content (edit without user re-review)"))
     return problems
 
@@ -637,12 +702,13 @@ def dump_item(item):
     if item.order:
         data["order"] = item.order
     if item.tests is not None:
-        if set(item.tests) == {None}:
-            data["tests"] = item.tests[None]
-        else:
-            data["tests"] = dict(item.tests)
+        data["test"] = item.tests[None] if set(item.tests) == {None} else dict(item.tests)
+    elif not item.parents:
+        data["test"] = "enabled" if item.features["test"] else "disabled"
     if item.reviewed:
-        data["reviewed"] = item.reviewed
+        data["review"] = item.reviewed
+    elif not item.parents:
+        data["review"] = "enabled" if item.features["review"] else "disabled"
     return yaml.dump(data, Dumper=_ItemDumper, sort_keys=False, default_flow_style=None, allow_unicode=True, width=120)
 
 
@@ -654,3 +720,268 @@ def clear_review(item):
 
 def write_item(item):
     item.path.write_text(dump_item(item), encoding="utf-8")
+
+
+# -- tree calls -------------------------------------------------------------
+# One core entry point per call, over an already loaded tree, writing through
+# the canonical writer. The command line is their genuine spelling; the editor
+# and the AI wrapper reach the very same functions.
+
+DEFAULT_HEADER = "TODO"
+DEFAULT_DESCRIPTION = "TODO: The component shall ...\n"
+# Fields under the review stamp: an edit of any of them clears the item's review.
+STAMPED_FIELDS = ("header", "description", "parents", "tests")
+
+
+class tree_error(ValueError):
+    """A refused tree call."""
+
+
+class unknown_uid(tree_error):
+    pass
+
+
+class stale_edit(tree_error):
+    """A compare-and-swap edit whose base no longer matches the item on disk."""
+
+    def __init__(self, message, current):
+        super().__init__(message)
+        self.current = current
+
+
+def feature_off(feature):
+    return tree_error(f"the tree's {feature} feature is off (root item: '{feature}: enabled')")
+
+
+def _addressed(items, uid):
+    if uid not in items:
+        raise unknown_uid(f"unknown UID '{uid}'")
+    return items[uid]
+
+
+def _settle(items, uids, clear):
+    """Leave the stamps a call moved saying what happened to them. `clear` is the
+    user standing behind the change: the stamp is dropped, and the item reads as
+    not reviewed. Without it -- a file edited underneath the tooling, or a call
+    proxied from an AI answer -- the stamp is left standing over content that no
+    longer matches it, which `review_problems` reads as a violated review."""
+    if not clear:
+        return
+    for uid in sorted(set(uids)):
+        item = items.get(uid)
+        if item is not None and item.reviewed:
+            clear_review(item)
+            write_item(item)
+
+
+def check_parents(items, uid, parents):
+    """Refuse a parent list that is malformed, unknown, duplicated, self-linked or cyclic."""
+    if not isinstance(parents, list) or not all(isinstance(p, str) for p in parents):
+        raise tree_error("'parents' must be a list of UIDs")
+    if len(set(parents)) != len(parents):
+        raise tree_error("duplicate parents")
+    for parent in parents:
+        if parent == uid:
+            raise tree_error("an item cannot be its own parent")
+        if parent not in items:
+            raise tree_error(f"unknown parent '{parent}'")
+    # Climbing the (edited) parent links from each new parent must never reach
+    # uid, or the DAG gains a cycle.
+    edges = {u: (parents if u == uid else item.parents) for u, item in items.items()}
+    seen, stack = set(), list(parents)
+    while stack:
+        node = stack.pop()
+        if node == uid:
+            raise tree_error(f"parents {parents} would create a cycle through '{uid}'")
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(p for p in edges.get(node, ()) if p in items)
+
+
+def parse_order(value):
+    if value in (None, ""):
+        return 0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise tree_error("'order' must be a number")
+    return value
+
+
+def parse_bindings(items, item, names):
+    """{name|None: kept sha} for a wire list of binding names, None for a branch."""
+    if names is None:
+        return None
+    if not features(items)["test"]:
+        raise feature_off("test")
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise tree_error("'tests' must be null or a list of binding names")
+    if len(set(names)) != len(names):
+        raise tree_error("duplicate binding names")
+    if "" in names and len(names) > 1:
+        raise tree_error("the default binding '' cannot be combined with named bindings")
+    for name in names:
+        if name and not BINDING_NAME_RE.match(name):
+            raise tree_error(f"invalid binding name '{name}' (want [a-z0-9_]+)")
+    old = item.tests or {}
+    return {(name or None): old.get(name or None) for name in names}
+
+
+def item_fields(item):
+    """The editable fields in their wire form (bindings as a name list)."""
+    return {"header": item.header, "description": item.description, "parents": list(item.parents),
+            "order": item.order, "tests": None if item.tests is None else [name or "" for name in item.tests]}
+
+
+def add_item(items, uid, parents, header=None, description=None, kind="leaf", folder=None, order=0, syngate_dir=None, clear=False):
+    """Scaffold a new item under `parents`; `kind` "leaf" carries a test binding
+    when the tree's test feature is on, "branch" never does. -> the written Item."""
+    syngate_dir = Path(syngate_dir) if syngate_dir else SYNGATE_DIR
+    if not UID_RE.match(uid or ""):
+        raise tree_error(f"'{uid}' is not a valid UID")
+    if uid in items:
+        raise tree_error(f"{uid} already exists at {items[uid].path}")
+    parents = list(parents or [])
+    if not parents:
+        raise tree_error("a new item needs at least one parent (the tree has exactly one root)")
+    check_parents(items, uid, parents)
+    folder = str(folder or "").strip()
+    directory = (syngate_dir.parent / folder).resolve() if folder else syngate_dir.resolve()
+    if not directory.is_relative_to(syngate_dir.resolve()):
+        raise tree_error(f"directory '{folder}' is outside the syngate tree")
+    description = str(description or DEFAULT_DESCRIPTION)
+    directory.mkdir(parents=True, exist_ok=True)
+    item = Item(uid=uid, path=directory / f"{uid}.yml", header=str(header or DEFAULT_HEADER).strip(),
+                description=description if description.endswith("\n") else description + "\n",
+                parents=parents, order=parse_order(order),
+                tests={None: None} if kind != "branch" and features(items)["test"] else None,
+                folder=str(directory.relative_to(syngate_dir.parent.resolve())))
+    write_item(item)
+    items[uid] = item
+    _settle(items, parents, clear)  # the new child moves its parents' stamps
+    return item
+
+
+def edit_item(items, uid, changes, base=None, clear=False):
+    """Partial update: only the fields present in `changes` move. `base` maps a
+    field to the value the caller started from and turns the write into a
+    per-field compare-and-swap, so an edit made meanwhile on disk (agent, git,
+    IDE) is never silently overwritten. -> the stored fields."""
+    item = _addressed(items, uid)
+    before = item_fields(item)
+    if "header" in changes:
+        item.header = str(changes["header"] or "").strip()
+    if "description" in changes:
+        text = str(changes["description"] or "")
+        item.description = text if text.endswith("\n") else text + "\n"
+    if "parents" in changes:
+        parents = changes["parents"] or []
+        check_parents(items, uid, parents)
+        item.parents = parents
+    if "order" in changes:
+        item.order = parse_order(changes["order"])
+    if "tests" in changes:
+        item.tests = parse_bindings(items, item, changes["tests"])
+    after = item_fields(item)
+    base = base if isinstance(base, dict) else {}
+    clashed = sorted(f for f in base if f in before and before[f] != base[f] and before[f] != after[f])
+    if clashed:
+        raise stale_edit(f"{uid}: {', '.join(clashed)} changed on disk since it was loaded",
+                         {f: before[f] for f in clashed})
+    if after != before:
+        if clear and item.reviewed and any(after[f] != before[f] for f in STAMPED_FIELDS):
+            clear_review(item)
+        write_item(item)
+        _settle(items, set(before["parents"]) ^ set(after["parents"]), clear)
+    return after
+
+
+def _placement(items, uid, siblings, index):
+    """{uid: order} landing `uid` at `index` among `siblings`: a free integer
+    strictly between the neighbours' keys when there is one (one file written),
+    else the whole family renumbered in steps of 10."""
+    below = items[siblings[index - 1]].order if index else None
+    above = items[siblings[index]].order if index < len(siblings) else None
+    if below is None and above is None:
+        return {}
+    if below is None:
+        key = math.floor(above) - 10
+    elif above is None:
+        key = math.floor(below) + 10
+    else:
+        key = math.floor((below + above) / 2)
+    if (below is None or below < key) and (above is None or key < above):
+        return {uid: key}
+    return {u: (n + 1) * 10 for n, u in enumerate(siblings[:index] + [uid] + siblings[index:])}
+
+
+def move_item(items, uid, to, before=None, source=None, link=False, clear=False):
+    """Place `uid` under parent `to`, in front of sibling `before` (None = last),
+    adding and removing parent links: its link to `source` is re-pointed at `to`,
+    `link` keeps that link and adds `to` as one more parent instead, and naming a
+    `source` that is a parent while `to` already is another drops `source`.
+    `order` is one key per item, so a multi-parent item carries the same key
+    under each of its parents. -> the UIDs written."""
+    item = _addressed(items, uid)
+    if to not in items:
+        raise tree_error(f"unknown parent '{to}'")
+    parents = list(item.parents)
+    if to not in parents:
+        if link or source not in parents:
+            parents.append(to)
+        else:
+            parents[parents.index(source)] = to
+    elif source != to and source in parents and not link:
+        parents.remove(source)
+    check_parents(items, uid, parents)
+    relinked, was = parents != item.parents, list(item.parents)
+    item.parents = parents
+    if clear and relinked and item.reviewed:
+        clear_review(item)
+    family = sorted_children(items, children_map(items), to)
+    siblings = [c for c in family if c != uid]
+    if before is None:
+        index = len(siblings)
+    elif before in siblings:
+        index = siblings.index(before)
+    else:
+        raise tree_error(f"'{before}' is not a sibling under {to}")
+    orders = {} if siblings[:index] + [uid] + siblings[index:] == family else _placement(items, uid, siblings, index)
+    written = {u for u, order in orders.items() if items[u].order != order} | ({uid} if relinked else set())
+    for u, order in orders.items():
+        items[u].order = order
+    for u in sorted(written):
+        write_item(items[u])
+    _settle(items, set(was) ^ set(parents), clear)  # the relink moves both ends' stamps
+    return sorted(written)
+
+
+def delete_item(items, uid, clear=False):
+    """Remove a childless item's file. -> the path removed."""
+    item = _addressed(items, uid)
+    children = sorted(children_map(items)[uid])
+    if children:
+        raise tree_error(f"{uid} still has children {children}; re-parent or delete them first")
+    item.path.unlink()
+    del items[uid]
+    _settle(items, item.parents, clear)  # the item is gone from its parents' stamps
+    return item.path
+
+
+def leaves_under(items, uid):
+    """The items a test or review run addresses for `uid`: the item itself when
+    it carries tests -- with the test feature off, when it is childless -- and
+    every such item below it, in sibling order. An unknown UID passes through
+    untouched, for the addressed command to judge."""
+    if uid not in items:
+        return [uid]
+    children, leaves, seen, stack = children_map(items), [], set(), [uid]
+    tests_on = features(items)["test"]
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        if items[node].is_leaf if tests_on else not children[node]:
+            leaves.append(node)
+        stack.extend(reversed(sorted_children(items, children, node)))
+    return leaves

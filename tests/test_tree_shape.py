@@ -157,7 +157,7 @@ def test_reviewed_stamp_must_match_computed_content(syngate_tree):
     syngate_dir, make_item = syngate_tree
     _seed_minimal(syngate_dir, make_item)
     items, _load_errors = syngatelib.load_tree(syngate_dir)
-    good = syngatelib.compute_stamp(items["ROOT-1"])
+    good = syngatelib.item_stamp(items, "ROOT-1")  # ROOT-1 has a child, and the child set is inside the stamp
 
     make_item(syngate_dir, "ROOT-1", "the product shall exist", header="root", reviewed=good)
     _items, load_errors, errors = _errors(syngate_dir)
@@ -213,3 +213,42 @@ def test_walk_selects_ancestors_root_first_then_descendants_each_uid_once(syngat
     assert syngatelib.walk(items, "MID-1", descendants=True) == ["ROOT-1", "SIDE-B", "SIDE-A", "MID-1", "LEAF-1", "LEAF-2"]
     assert syngatelib.walk(items, "LEAF-2") == ["ROOT-1", "SIDE-B", "SIDE-A", "MID-1", "LEAF-2"]
     assert syngatelib.walk(items) == ["ROOT-1", "SIDE-A", "MID-1", "LEAF-1", "LEAF-2", "SIDE-B"]
+
+
+@pytest.mark.syngate("SYNGATE-030")
+def test_the_root_switches_the_test_and_review_features_both_off_when_absent(syngate_tree):
+    syngate_dir, make_item = syngate_tree
+    (syngate_dir / "ROOT-1.yml").write_text(yaml.safe_dump({"header": "root", "description": "root shall exist", "parents": []}), encoding="utf-8")
+    make_item(syngate_dir, "LEAF-1", "the leaf shall pass", parents=["ROOT-1"], tests=None)
+    make_item(syngate_dir, "STAMPED-1", "approved", parents=["ROOT-1"], reviewed="0" * 64)
+    items, load_errors, errors = _errors(syngate_dir)
+    assert load_errors == [] and syngatelib.features(items) == {"test": False, "review": False}
+    assert _matching(errors, "LEAF-1: test bindings while the tree's test feature is off")
+    assert _matching(errors, "STAMPED-1: review stamp while the tree's review feature is off")
+    make_item(syngate_dir, "ROOT-1", "root shall exist", header="root", features=("test",))
+    items, load_errors, errors = _errors(syngate_dir)
+    assert load_errors == [] and syngatelib.features(items) == {"test": True, "review": False}
+    assert _matching(errors, "feature is off") == ["STAMPED-1: review stamp while the tree's review feature is off (root item: 'review: enabled')"]
+    make_item(syngate_dir, "ROOT-1", "root shall exist", header="root", tests=None, reviewed="0" * 64)  # the root's own binding and stamp switch both on
+    items, load_errors, errors = _errors(syngate_dir)
+    assert load_errors == [] and syngatelib.features(items) == {"test": True, "review": True} and not _matching(errors, "feature is off")
+    make_item(syngate_dir, "LEAF-1", "the leaf shall pass", parents=["ROOT-1"], tests="enabled")
+    _items, load_errors, _errs = _errors(syngate_dir)
+    assert _matching(load_errors, "LEAF-1: 'test: enabled' switches the feature on the root item only")
+
+
+@pytest.mark.syngate("SYNGATE-040")
+def test_bindings_and_stamp_are_read_from_test_and_review_and_their_old_spellings_and_written_back_new(syngate_tree):
+    syngate_dir, make_item = syngate_tree
+    make_item(syngate_dir, "ROOT-1", "root shall exist", header="root")
+    sha, stamp = "a" * 64, "b" * 64
+    (syngate_dir / "OLD-1.yml").write_text(yaml.safe_dump({"header": "old", "description": "old shall bind", "parents": ["ROOT-1"], "tests": {"a": sha}, "reviewed": stamp}), encoding="utf-8")
+    (syngate_dir / "NEW-1.yml").write_text(yaml.safe_dump({"header": "new", "description": "new shall bind", "parents": ["ROOT-1"], "test": {"a": sha}, "review": stamp}), encoding="utf-8")
+    (syngate_dir / "BOTH-1.yml").write_text(yaml.safe_dump({"header": "both", "description": "both shall not", "parents": ["ROOT-1"], "test": None, "tests": None}), encoding="utf-8")
+    items, load_errors = syngatelib.load_tree(syngate_dir)
+    assert load_errors == ["BOTH-1: both 'test' and its old spelling 'tests'"]
+    assert (items["OLD-1"].tests, items["OLD-1"].reviewed) == ({"a": sha}, stamp) == (items["NEW-1"].tests, items["NEW-1"].reviewed)
+    assert yaml.safe_load(syngatelib.dump_item(items["OLD-1"])) == {"header": "old", "description": "old shall bind\n", "parents": ["ROOT-1"], "test": {"a": sha}, "review": stamp}
+    assert yaml.safe_load(syngatelib.dump_item(items["ROOT-1"])) == {"header": "root", "description": "root shall exist\n", "parents": [], "test": "enabled", "review": "enabled"}
+    items["ROOT-1"].features["review"] = False
+    assert yaml.safe_load(syngatelib.dump_item(items["ROOT-1"]))["review"] == "disabled"

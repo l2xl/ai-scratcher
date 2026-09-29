@@ -120,3 +120,28 @@ def test_workflows_mode_allows_the_workflow_tool(tmp_path):
     combined = _mode_argv(tmp_path, ["edit", "internet", "workflows"])
     assert combined[combined.index("--allowedTools") + 1] == "Agent,WebSearch,WebFetch,Workflow"
     assert combined[combined.index("--permission-mode") + 1] == "acceptEdits"
+
+
+@pytest.mark.syngate("CLAUDE_CODE-050")
+def test_the_tree_call_protocol_is_appended_and_tree_file_edits_are_denied_in_every_mode(tmp_path):
+    for modes in ([], ["edit"], ["edit", "internet", "workflows"]):
+        argv = _mode_argv(tmp_path, modes)
+        assert argv[argv.index("--append-system-prompt") + 1] == synthetic.TREE_CALLS
+        assert argv[argv.index("--disallowedTools") + 1] == "Edit(syngate/**),Write(syngate/**)"
+    assert synthetic.TREE_CALLS.startswith("# Syngate tree calls") and "```syngate" in synthetic.TREE_CALLS
+
+
+@pytest.mark.syngate("SYNTHETIC-020")
+def test_an_answer_is_text_or_one_block_of_tree_calls_never_both():
+    calls = [{"tool": "add", "uid": "AREA-030", "parent": "@", "header": "H", "description": "D"}, {"tool": "remove", "uid": "AREA-020"},
+             {"tool": "move", "uid": "AREA-010", "to": "AREA", "before": "AREA-030"}]
+    block = "```syngate\n" + json.dumps(calls) + "\n```"
+    prose = "Plain prose, even with ```json\n[]\n``` inside."
+    assert synthetic.parse_reply(prose) == ("chat", prose)
+    assert synthetic.parse_reply(f"\n{block}\n\n") == ("calls", calls)
+    for mixed in (f"Here you go:\n{block}", f"{block}\nDone.", f"{block}\n{block}"):
+        with pytest.raises(synthetic.protocol_error, match="never both"):
+            synthetic.parse_reply(mixed)
+    for malformed in ("[{", "[]", '{"tool": "add"}', '[{"tool": "rename", "uid": "X"}]', '[{"tool": "add", "uid": "X", "header": "H"}]', '[{"tool": "move", "uid": "X"}]'):
+        with pytest.raises(synthetic.protocol_error):
+            synthetic.parse_reply(f"```syngate\n{malformed}\n```")

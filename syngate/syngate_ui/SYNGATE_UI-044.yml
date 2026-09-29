@@ -1,0 +1,6 @@
+header: Feature-off affordances
+description: |
+  With a feature switched off the page shall show none of its affordances — without test no test axis or bindings button; without review no review mark, review or clear run — while a test run stays offered whichever way the switches sit.
+parents: [SYNGATE_UI-040]
+order: 40
+test: ~

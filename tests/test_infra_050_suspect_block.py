@@ -45,7 +45,7 @@ def test_reviewed_item_left_untouched_passes_validate_structure(syngate_tree):
 def test_strict_validate_reports_every_unreviewed_item(monkeypatch, capsys):
     import syngate as syngate_cli
 
-    root = syngatelib.Item(uid="ROOT-1", path=syngatelib.ROOT, header="root", description="Root branch.\n", parents=[])
+    root = syngatelib.Item(uid="ROOT-1", path=syngatelib.ROOT, header="root", description="Root branch.\n", parents=[], features={"test": True, "review": True})
     child = syngatelib.Item(
         uid="CHILD-1", path=syngatelib.ROOT, header="leaf", description="The child shall do work.\n",
         parents=["ROOT-1"], tests={None: "b" * 64},
@@ -68,7 +68,7 @@ def test_non_strict_validate_does_not_report_unreviewed_items(monkeypatch, capsy
 
     root = syngatelib.Item(
         uid="ROOT-1", path=syngatelib.ROOT, header="root", description="The root shall stand alone.\n",
-        parents=[], tests={None: "c" * 64},
+        parents=[], tests={None: "c" * 64}, features={"test": True, "review": True},
     )
     items = {"ROOT-1": root}
 

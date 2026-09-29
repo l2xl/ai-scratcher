@@ -1,11 +1,40 @@
 # AI-Scratcher
 
-Product architecture analysis and synthesis toolkit for any git project, made of the **Synergy
-Context Gate (syngate)** tree toolkit and its AI agent. The tree of item files under
-the managed project's `syngate/` folder is the single source of truth — the product's features,
-architecture and contracts decomposed into items that serve both as the context fed to AI-driven
-work and as the TDD gate every bound test is frozen against. This repository is itself a managed
-project: its own items live under `syngate/` and its tests bind to them.
+A general-purpose AI assistant of the next generation, built around deep iterative analysis of the
+user–AI dialog and synthesis of its content into a **Synergy Context Gate (syngate)** — a DAG of
+dialog sentences that then constructs the optimal context for the AI model, per replica of the
+dialog.
+
+A conversation with AI-Scratcher starts as an ordinary AI chat. Iteratively, the dialog is
+transformed into a DAG: every sentence that survived the exchange becomes an item — a short
+statement with the items it follows from as parents — and the chat goes on anchored at items rather
+than at the tail of a transcript. The DAG is then the context engine: a replica anchored at an item
+is answered from the item's ancestry alone — the statements from the root down to the anchor, each
+once, in order — so the model receives exactly the reasoning that leads to the point under
+discussion, not the whole history and not a lossy summary of it. The reply either continues the
+dialog or condenses it back into the DAG, and the user keeps the last word by reviewing what the
+DAG asserts.
+
+Both directions of the loop are what the toolkit implements:
+
+- **Dialog → DAG (analysis).** Items are plain YAML files, one sentence each, shaped only by
+  `parents` (*Tree Model*). The local editor (`syngate ui`) shows the DAG as an outline and as one
+  structured document, and the AI agent restructures it through *tree calls* — add, remove, move —
+  never by editing files (*Dialog agent*).
+- **DAG → context (synthesis).** The seed context of an item is the chain of its ancestors'
+  statements, root first, then its own; multi-parent items enter once at their first occurrence
+  (`SYNGATE-010`). That chain, and only that chain, is what a replica anchored at the item is
+  answered from.
+- **Gate.** Two optional disciplines turn a DAG into a gate: *review* stamps an item as approved by
+  the user, so the DAG cannot drift from what was agreed, and *test* binds an item to executable
+  routines, so the DAG cannot drift from what the code does (*Process Rules*). Both are switched on
+  the root item and are off by default.
+
+Product architecture definition through AI dialog analysis and synthesis is one use case of this loop:
+with `test` and `review` on, the DAG of a software project is its architecture and contract tree,
+every leaf definition bound to a test frozen on approval, and the ancestry chain is the context an AI coding
+session is seeded from. Open Trader is such a project, and so is this repository — its own items
+live under `syngate/` and its tests bind to them.
 
 # Install and run
 
@@ -34,11 +63,18 @@ discovery scans `scripts/tests/` and `tests/` for pytest bindings and `test/` fo
   one item has empty `parents` (the root, `OPEN-TRADER`). No settings files anywhere.
   Use consideration to name items, which represents a whole feature, without a number (like top OPEN_TRADER),
   then its subbranches may be groupped by subfolder and have same name and numbered suffix (unless it again represent large feature)
-- **Leaf vs branch is structural**: a branch has children; a `tests` key binds tests to the item
+- **Leaf vs branch is structural**: a branch has children; a `test` key binds tests to the item
   that carries it — every implemented leaf, and any branch that has tests of its own. A
   test-bearing branch passes only when its own bindings and all its children pass, and it is
-  reviewed and frozen exactly as a leaf is. A childless item without `tests` is simply not yet
+  reviewed and frozen exactly as a leaf is. A childless item without `test` is simply not yet
   implemented — it rolls up as `not_implemented` like any leaf with no coverage.
+- **The root item switches the tree's features.** `test: enabled` turns test binding on and
+  `review: enabled` turns review stamping on; both are **off when absent**, so a project that wants
+  neither the TDD gate nor approval stamps carries plain items only. A root's own binding or stamp
+  switches its feature on as well. With a feature off, an item carrying its key is a layout problem,
+  the commands of that feature refuse to run and the page shows none of its affordances; with the
+  test feature off, `review` stamps childless items as approved text. AI-Scratcher's own root
+  (`AI-SCRATCHER`) and Open Trader's (`OPEN-TRADER`) switch both on.
 
 # Item Schema
 
@@ -48,8 +84,8 @@ description: |
   The CI pipeline shall build the project on every push to the repository.
 parents: [INFRA-065]
 order: 10
-tests: ~
-reviewed: <sha256 hex, present only after user review>
+test: ~
+review: <sha256 hex, present only after user review>
 ```
 
 - `header` — a minimal noun phrase naming the behaviour (`Per-subscription condition`), no mechanism and no
@@ -57,14 +93,26 @@ reviewed: <sha256 hex, present only after user review>
 - `description` — exactly one "shall" on test-bearing leaves.
 - `order` — optional, presentation-only sibling sort key; siblings sort by `(order, UID)`.
   Excluded from the reviewed stamp: reordering a report never triggers re-review.
-- `tests` forms: `~` → single default test bound by the `[UID]` tag alone (becomes
-  `tests: <routine-sha256>` once reviewed); mapping `name: sha|~` → each binding bound by the
-  `[UID][name]` tag pair. Binding names: `[a-z0-9_]+`, unique per item.
-- `reviewed` — transparent stamp: sha256 hex over the canonical JSON
-  `{"description":…,"header":…,"parents":[…],"tests":{name:sha}|null}` (`sort_keys`, compact
-  separators, UTF-8; default binding name `""`, unstamped shas `""`). Recompute with
-  `syngatelib.compute_stamp` or plain `hashlib`+`json`. Stamping is **user-only** — the stamp is the
-  record of user approval.
+- `test` forms: `~` → single default test bound by the `[UID]` tag alone (becomes
+  `test: <routine-sha256>` once reviewed); mapping `name: sha|~` → each binding bound by the
+  `[UID][name]` tag pair. Binding names: `[a-z0-9_]+`, unique per item. On the root item,
+  `enabled` / `disabled` is the tree's test feature switch instead.
+- `review` — transparent stamp: sha256 hex over the canonical JSON
+  `{"children":[…],"description":…,"header":…,"parents":[…],"tests":{name:sha}|null}` (`sort_keys`,
+  compact separators, UTF-8; default binding name `""`, unstamped shas `""`). `children` holds the
+  immediate child UIDs and is present only for an item that has any, so a childless item's stamp is
+  unchanged and adding or removing a child moves its parent's. Recompute with
+  `syngatelib.item_stamp(items, uid)`, or `compute_stamp` plus the child set. Stamping is **user-only** — the stamp is the
+  record of user approval. On the root item, `enabled` / `disabled` is the tree's review feature
+  switch instead.
+- A call that moves stamped content settles the stamps it touched one of two ways. With
+  `--clear-review` — the page always passes it, and it is yours to pass from the CLI — the stamp is
+  dropped and the item reads as *not reviewed*. Without it, as when a call is proxied from an AI
+  answer or a file is edited behind the tooling, the stamp is left standing over content that no
+  longer matches it and the item reads as *review violated*, so an unattributed change is loud
+  rather than quietly unapproved.
+- The old spellings `tests` and `reviewed` are read as the same keys, so an existing tree keeps
+  loading; the canonical writer emits `test` and `review`, so items migrate as they are edited.
 
 # Test Binding
 
@@ -90,23 +138,42 @@ file named by `SYNGATE_COVERAGE_FILE` (no emission when unset).
 - Emitters live in the managed project: a pytest `conftest.py` hook (see `tests/conftest.py` here)
   and, for Catch2, a listener linked into every test executable (Open Trader's
   `test/syngate_coverage_listener.cpp`).
-- The gate joins records against `tests:` in both directions: every reviewed leaf binding needs ≥1
+- The gate joins records against `test:` in both directions: every reviewed leaf binding needs ≥1
   executed record, and every record's UID must match a known item.
 
 # CLI (`syngate`)
 
-- `syngate new <UID> --parent <UID> [--dir syngate/<folder>] [--order N]` — scaffold an item.
+The tree calls (`add` / `edit` / `move` / `delete`) are one line each over the core functions in
+`syngatelib`; the browser editor and the AI wrapper drive those same functions, so the command line
+is their genuine spelling rather than a second implementation.
+
+- `syngate add <UID> --parent <UID> [--dir syngate/<folder>] [--order N] [--header H]
+  [--description D] [--branch]` — scaffold an item (with a `test: ~` binding while the tree's test
+  feature is on, which `--branch` withholds).
+- `syngate edit <UID> [--header H] [--description D] [--order N]` — change an item in place; with
+  `--clear-review` an edit of anything under the stamp (header, description, parents, bindings)
+  drops its `review`, without it the stamp is left standing and the review reads as violated.
+- `syngate move <UID> --to <UID> [--before <UID>] [--from <UID>] [--link]` — add and remove parent
+  links and place the item among its siblings: `--from` names the link to re-point when the item
+  has several, `--link` adds `--to` as one more parent instead of re-pointing, and a `--from` that
+  is a parent while `--to` already is another drops the `--from` link.
+- `syngate delete <UID>` — remove a childless item's file.
 - `syngate test <UID…> [--build-dir DIR] [--coverage-out FILE]` — run the routines bound to leaf
   items (literals or glob patterns) without stamping: pytest routines by node id in one process,
   Catch2 cases by an OR of their tag pairs in one run per test binary. With `--coverage-out` the
   run's records are folded into FILE, **replacing** the previous records of every re-run binding —
   with "any failed record reddens the leaf", an appended re-run could never turn a leaf green again.
+  Runs whichever way the test feature sits: off only means the tree does not *await* tests of its
+  items, so the routines tagged for them still run and still record coverage — with the switch off
+  the bindings come from the discovered tags, since nothing is declared. Stamping stays `review`'s.
 - `syngate review <UID>` — **user-only**: validates the item, discovers its bindings, runs the bound
-  tests, and stamps routine shas + `reviewed` once every binding resolves to exactly one runnable
+  tests, and stamps routine shas + `review` once every binding resolves to exactly one runnable
   routine — whether that routine currently passes or fails. A failing routine still freezes and the
   leaf simply rolls up as `test_failed` (TDD red state) until the implementation lands; only a
   binding that can't be run at all (ambiguous, unresolved, or not built) blocks stamping. `syngate clear
-  <UID>` removes the stamp (and reverts shas to `~`). Takes `--coverage-out` like `test`.
+  <UID>` removes the stamp (and reverts shas to `~`). Takes `--coverage-out` like `test`. Both are
+  refused while the tree's review feature is off; with the test feature off, `review` stamps
+  childless items without running anything.
 - `syngate validate [--coverage FILE …] [--strict]` — structural validation + frozen-routine checks
   (+ coverage join when given files; `--strict` requires every item reviewed). CI entry:
   Open Trader's `ci/gate.sh` (bootstraps `.venv-syngate` with this package; `GATE_STRICT=1` adds `--strict`).
@@ -118,7 +185,10 @@ file named by `SYNGATE_COVERAGE_FILE` (no emission when unset).
   - **The outline tree carries every structured field of an item**: rollup status, UID, problem /
     review / leaf badges, the header (edited in place, F2) and — by the row's position — `parents`
     and `order`. It doubles as the TOC of the document on the right. A childless row's `T` opens
-    the bindings popover (the `tests` key, its binding names, the recorded runs).
+    the bindings popover (the `test` key, its binding names, the recorded runs). A feature the root
+    item keeps off has no affordances on the page: no test axis or `T` without test, no review
+    mark, review or clear run without review; a test run stays offered whichever way the switches
+    sit, since the test switch only says the tree awaits no tests.
   - **The document shows the whole tree as one structured text**: every item is a titled frame —
     the UID sits on the top border, the description inside, validation problems inline. The label on
     the bottom border carries both status axes of *Status Rollup* — `test passed │ ⚠ review violated`
@@ -159,6 +229,35 @@ file named by `SYNGATE_COVERAGE_FILE` (no emission when unset).
     token from the printed URL (Jupyter-style defense for localhost tools that execute commands);
     the page runs under a nonce-only `Content-Security-Policy`, the second fence behind the
     escape-first markdown renderer.
+
+# Dialog tool
+
+The dialog runs inside the DAG (`synthetic.py`). `✦ AI chat` on an item's panel opens an exchange
+anchored at that item; every replica is one non-interactive turn of the chosen connector:
+
+- **Context.** The seed context — the ancestry chain of the anchor, root first, then the anchor's
+  own statement — is the system prompt of the turn; the user's text is the prompt. Nothing else of
+  the conversation travels except the connector's own session, which the next replica resumes. The
+  Claude Code connector runs the local `claude` CLI with the call modes (edit, internet, workflows)
+  as its permission mode and allowed tools; its models and efforts are the ones the page offers.
+- **Two kinds of reply, never mixed.** A reply is **either** plain text — the dialog goes on — **or**
+  exactly one fenced ```` ```syngate ```` block holding a JSON list of tree calls — the dialog is
+  condensed into the DAG — and nothing else. A reply that carries both, or a malformed call, is
+  refused by the harness (HTTP 422, shown as an error in the chat; the session is kept, so the next
+  replica can ask for a clean answer). The protocol every connector appends to its system prompt is
+  `synthetic.TREE_CALLS`.
+- **Tree calls are the only way the agent touches the DAG.** The files under `syngate/` are never
+  edited by the model — the Claude Code connector denies `Edit`/`Write` under `syngate/**` in every
+  mode. `"@"` stands for the anchored item, every other item is addressed by its UID:
+  `{"tool": "add", "uid", "parent" (default "@"), "header", "description", "kind": "leaf"|"branch"}`
+  adds a statement under its parent, last among the siblings, in the folder of its last sibling
+  (else the parent's); `{"tool": "remove", "uid"}` drops a childless statement;
+  `{"tool": "move", "uid", "to", "before" (default last), "from"}` re-points the parent link and
+  places the item, `from` naming the link when the item has several parents.
+- **Applied through the editor's own mutations.** The harness runs the calls in order through
+  `create_item`, `delete_item` and `move_item`, stops at the first refused one and shows the applied
+  list in the history; the DAG re-renders through the fingerprint poll, and the user reviews the
+  result exactly as any other edit.
 
 # Status Rollup
 

@@ -1,0 +1,6 @@
+header: Review option
+description: |
+  `review: enabled|disabled` on the root item, off when absent. Off: no item carries a stamp, and `review` and `clear` refuse naming the switch to set. On: `review` stamps an item and `clear` drops its stamp.
+parents: [SYNGATE-050]
+order: 20
+test: ~

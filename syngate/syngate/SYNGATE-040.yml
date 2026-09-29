@@ -1,0 +1,6 @@
+header: Common key spelling
+description: |
+  An item's bindings and stamp shall be read from the `test` and `review` keys as well as from their old spellings `tests` and `reviewed`, and written back as `test` and `review`.
+parents: [INFRA-046]
+order: 50
+test: ~

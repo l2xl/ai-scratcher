@@ -1,0 +1,6 @@
+header: Syngate API
+description: |
+  Python based tools/API to work with syngate DAG. The calls except test and review has option to clear review to signal the change is intentional. The option is omitted by default.
+parents: [SYNGATE, SYNTHETIC-020]
+order: -20
+test: ~

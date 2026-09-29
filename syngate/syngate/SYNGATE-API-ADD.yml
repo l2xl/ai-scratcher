@@ -1,0 +1,5 @@
+header: Add node
+description: |
+  syngate add call
+parents: [SYNGATE-API]
+test: ~

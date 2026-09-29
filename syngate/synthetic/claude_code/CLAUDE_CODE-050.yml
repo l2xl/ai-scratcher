@@ -1,0 +1,6 @@
+header: Tree edit fence
+description: |
+  The Claude Code connector shall append the tree call protocol to the system prompt and deny direct edits of the files under syngate/ in every mode.
+parents: [CLAUDE_CODE]
+order: 50
+test: ~

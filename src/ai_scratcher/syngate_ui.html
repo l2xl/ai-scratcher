@@ -435,22 +435,27 @@ function rowHtml(row) {
     + `<span class="cell-node" role="gridcell"><span class="twist"></span>`
     + `<span class="handle"><span class="dot"></span><span class="node-uid">${uid}</span></span><span class="badges"></span></span>`
     + `<span class="cell-title" role="gridcell"><input class="title" type="text" spellcheck="false" data-uid="${uid}" data-field="header" data-focus-key="title:${path}"></span>`
-    + `<span class="tools" role="gridcell"><button data-act="tests" title="tests &amp; review">T</button><button data-act="menu" title="add child · remove" aria-haspopup="menu">⋯</button></span>`
+    + `<span class="tools" role="gridcell">${feature("test") ? '<button data-act="tests" title="tests &amp; review">T</button>' : ""}<button data-act="menu" title="add child · remove" aria-haspopup="menu">⋯</button></span>`
     + (row.cycle ? '<span class="dupmark">(cycle)</span>' : "") + "</div>";
 }
 
-// The summarized status of an item label: red when tests failed or the review is violated, green only when tests passed and the item is reviewed.
+// The tree's feature switches (root item `test: enabled` / `review: enabled`): a feature that is off has no affordances on the page.
+const feature = (name) => state.model.features[name];
+
+// The summarized status of an item label: red when tests failed or the review is violated, green only when tests passed and the item is reviewed; an axis switched off counts as satisfied.
 function statusColor(it) {
-  if (it.test === "test_failed" || it.review === "review_violated") return "red";
-  return it.test === "test_passed" && it.review === "reviewed" ? "green" : "gray";
+  const test = feature("test"), review = feature("review");
+  if ((test && it.test === "test_failed") || (review && it.review === "review_violated")) return "red";
+  return (!test || it.test === "test_passed") && (!review || it.review === "reviewed") ? "green" : "gray";
 }
 
-// The common status label of a tree row and of a content panel: status dot and review mark.
+// The common status label of a tree row and of a content panel: status dot and review mark, each only while its feature is on.
 function decorateLabel(el, it) {
-  const dot = el.querySelector(".dot");
+  const dot = el.querySelector(".dot"), axes = [feature("test") && it.test, feature("review") && it.review].filter(Boolean);
   dot.className = "dot " + statusColor(it);
-  dot.title = `${it.test.replace(/_/g, " ")} · ${it.review.replace(/_/g, " ")}`;
-  setHtml(el.querySelector(".badges"), reviewMarkHtml(it));
+  dot.hidden = !axes.length;
+  dot.title = axes.map((axis) => axis.replace(/_/g, " ")).join(" · ");
+  setHtml(el.querySelector(".badges"), feature("review") ? reviewMarkHtml(it) : "");
 }
 
 // The review mark of an item label: green check, red cross, or nothing while not reviewed.
@@ -791,29 +796,31 @@ function blockHtml(row) {
     + `<div class="block-foot"><div class="block-ai"></div><div class="block-status"></div></div></fieldset>`;
 }
 
-function leavesUnder(uid) { return [uid, ...descendants(uid)].filter((u) => item(u).is_leaf); }
+// The items a run addresses below `uid`: those with own tests, or -- with the test feature off -- the childless ones.
+function leavesUnder(uid) { return [uid, ...descendants(uid)].filter((u) => (feature("test") ? item(u).is_leaf : !item(u).children.length)); }
 const REVIEW_MARK = { reviewed: "✓", not_reviewed: "○", review_violated: "⚠" };
 const where = (l) => `${l.path}:${l.line}` + (l.name.startsWith(l.path + "::") ? " · " + l.name.slice(l.path.length + 2) : "");
 
-// One label per block, both rollup axes; the tooltip explains a leaf by its bindings, a branch by its leaves.
+// One label per block, the rollup axes whose features are on; the tooltip explains a leaf by its bindings, a branch by its leaves.
 function statusHtml(uid, it) {
-  const line = (state, text) => `<div class="tip-${state}">${esc(text)}</div>`;
-  let tip = line(it.test, it.test.replace(/_/g, " "));
-  if (it.is_leaf) {
+  const line = (state, text) => `<div class="tip-${state}">${esc(text)}</div>`, test = feature("test"), review = feature("review");
+  if (!test && !review) return `<span class="pill st-unknown"><span class="rev">▶ run</span><span class="tip">${it.problems.map((p) => line("review_violated", p)).join("")}</span></span>`;
+  let tip = test ? line(it.test, it.test.replace(/_/g, " ")) : "";
+  if (test && it.is_leaf) {
     tip += it.bindings.map((b) => {
       const runs = it.tests.filter((t) => t.binding === b.name), result = !runs.length ? "unknown" : runs.some((t) => !t.passed) ? "test_failed" : "test_passed";
       const site = b.locations.length ? b.locations.map(where).join(", ") : `no tagged routine yet — tag it [${uid}]${b.name ? "[" + b.name + "]" : ""}`;
       return line(result, `${b.name || "(default)"} · ${result.replace("test_", "")} · ${site}`);
     }).join("");
   }
-  if (it.children.length) {
+  if (test && it.children.length) {
     const below = leavesUnder(uid).filter((u) => u !== uid), tally = new Map();
     for (const u of below) tally.set(item(u).test, (tally.get(item(u).test) || 0) + 1);
     tip += [...tally].map(([state, n]) => line(state, `${n} item(s) below ${state.replace(/_/g, " ")}`)).join("");
   }
   tip += it.problems.map((p) => line("review_violated", p)).join("");
-  return `<span class="pill st-${it.test}"><span class="ball"></span>${it.test.replace(/_/g, " ")}`
-    + `<span class="rev ${it.review}">${REVIEW_MARK[it.review]} ${it.review.replace(/_/g, " ")}</span><span class="tip">${tip}</span></span>`;
+  return `<span class="pill st-${test ? it.test : "unknown"}">` + (test ? `<span class="ball"></span>${it.test.replace(/_/g, " ")}` : "")
+    + (review ? `<span class="rev ${it.review}">${REVIEW_MARK[it.review]} ${it.review.replace(/_/g, " ")}</span>` : "") + `<span class="tip">${tip}</span></span>`;
 }
 
 function viewHtml(uid, it) {
@@ -821,7 +828,7 @@ function viewHtml(uid, it) {
 }
 
 function testsHtml(uid, it) {
-  let body = `<label class="leaf-toggle"><input type="checkbox" id="f-isleaf" ${it.is_leaf ? "checked" : ""}> carries its own <code>tests</code> key</label>`;
+  let body = `<label class="leaf-toggle"><input type="checkbox" id="f-isleaf" ${it.is_leaf ? "checked" : ""}> carries its own <code>test</code> key</label>`;
   if (it.is_leaf) {
     body += it.bindings.map((b, i) => {
       const locHtml = b.locations.length
@@ -926,6 +933,7 @@ async function sendChat() {
     chat.session = result.session;
     chat.log.push({ role: "ai", text: result.reply });
   } catch (err) {
+    if (err.body && err.body.session) chat.session = err.body.session;
     chat.log.push({ role: "error", text: err.message });
   }
   chat.busy = false;
@@ -1030,11 +1038,11 @@ function openRowMenu(row, anchor) {
 }
 
 function openStatusMenu(uid, anchor) {
-  const menu = $("status-menu"), it = item(uid), n = leavesUnder(uid).length, off = n ? "" : "disabled";
+  const menu = $("status-menu"), it = item(uid), n = leavesUnder(uid).length, off = n ? "" : "disabled", own = leavesUnder(uid).includes(uid);
   menu.dataset.uid = uid;
-  menu.innerHTML = `<button role="menuitem" data-run="test" ${off}>▶ ${it.is_leaf ? "Run test" : `Run tests of ${n} leaf item(s)`}</button>`
-    + `<button role="menuitem" data-run="review" ${off}>✓ ${it.is_leaf ? "Mark reviewed" : `Mark ${n} leaf item(s) reviewed`}</button>`
-    + (it.is_leaf && it.reviewed ? '<button role="menuitem" data-run="clear" class="danger">✕ Clear review</button>' : "");
+  menu.innerHTML = `<button role="menuitem" data-run="test" ${off}>▶ ${own ? "Run test" : `Run tests of ${n} leaf item(s)`}</button>`
+    + (feature("review") ? `<button role="menuitem" data-run="review" ${off}>✓ ${own ? "Mark reviewed" : `Mark ${n} leaf item(s) reviewed`}</button>` : "")
+    + (feature("review") && own && it.reviewed ? '<button role="menuitem" data-run="clear" class="danger">✕ Clear review</button>' : "");
   menu.showPopover();
   placeBy(menu, anchor);
 }
@@ -1304,7 +1312,7 @@ statusMenu.addEventListener("click", (event) => {
   const action = event.target.dataset.run, uid = statusMenu.dataset.uid;
   if (!action) return;
   statusMenu.hidePopover();
-  if (action === "review" && !item(uid).is_leaf && !confirm(`Run the bound tests of the ${leavesUnder(uid).length} leaf item(s) under ${uid} and stamp every one of them reviewed?`)) return;
+  if (action === "review" && !leavesUnder(uid).includes(uid) && !confirm(`Run the bound tests of the ${leavesUnder(uid).length} leaf item(s) under ${uid} and stamp every one of them reviewed?`)) return;
   if (action === "clear" && !confirm(`Drop the reviewed stamp of ${uid}? Bound routine shas revert to ~.`)) return;
   run(action, [uid]);
 });

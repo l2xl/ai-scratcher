@@ -1,4 +1,6 @@
 header: AI-Scratcher
 description: |
-  Product architecture analysis and synthesis toolkit: the Synergy Context Gate tree, its TDD gate and local editor, and its AI agent that works from the tree's context.
+  General-purpose AI assistant built around iterative analysis of the user–AI dialog and its synthesis into the Synergy Context Gate DAG, which constructs the per-replica context: the item tree, its gate and local editor, and the dialog agent.
 parents: []
+test: enabled
+review: enabled

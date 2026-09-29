@@ -38,6 +38,9 @@ def test_compute_stamp_is_a_transparent_sha_over_canonical_json():
     payload = {"description": DESC, "header": "Freeze", "parents": ["INFRA", "CORE"], "tests": {"": "a" * 64}}
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     assert syngatelib.compute_stamp(item) == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    # An item that has children carries their sorted UIDs, so gaining or losing one moves its stamp.
+    borne = json.dumps(dict(payload, children=["KID-1", "KID-2"]), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    assert syngatelib.compute_stamp(item, ["KID-2", "KID-1"]) == hashlib.sha256(borne.encode("utf-8")).hexdigest()
 
 
 def _reviewed_leaf(sha):

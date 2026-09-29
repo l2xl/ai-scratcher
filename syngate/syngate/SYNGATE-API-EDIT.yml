@@ -1,0 +1,6 @@
+header: Edit node
+description: |
+  syngate edit call. Intended to change head and description. This action  clear the review stamp from edited item.
+parents: [SYNGATE-API]
+order: 20
+test: ~

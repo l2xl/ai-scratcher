@@ -22,7 +22,6 @@ import hashlib
 import hmac
 import http.server
 import json
-import math
 import re
 import secrets
 import subprocess
@@ -40,8 +39,6 @@ DEFAULT_BUILD_DIR = "cmake-build-debug-clang"
 # UIDs and the glob patterns syngate.py accepts for batch review/clear.
 RUN_UID_RE = re.compile(r"^[A-Za-z0-9_\-?*\[\]!]+$")
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-# Fields under the review stamp: an edit of any of them clears the item's review.
-STAMPED_FIELDS = ("header", "description", "parents", "tests")
 # Coverage files picked up automatically when none are given explicitly.
 DEFAULT_COVERAGE = ("pytest-coverage.jsonl", "syngate_coverage.jsonl", "build-ci/syngate_coverage.jsonl")
 # Test / review runs started from the page fold their records in here, so a run recolors the statuses.
@@ -55,6 +52,19 @@ class ApiError(Exception):
         super().__init__(message)
         self.status = status
         self.extra = extra
+
+
+def _call(run):
+    """Run a core tree call, mapping its refusal onto the HTTP answer: an
+    unknown item is 404, a lost compare-and-swap 409, anything else a 400."""
+    try:
+        return run()
+    except syngatelib.stale_edit as err:
+        raise ApiError(409, str(err), current=err.current) from None
+    except syngatelib.unknown_uid as err:
+        raise ApiError(404, str(err)) from None
+    except syngatelib.tree_error as err:
+        raise ApiError(400, str(err)) from None
 
 
 class Job:
@@ -192,7 +202,7 @@ class SyngateUIApp:
                                 is_leaf=item.is_leaf,
                                 description_raw=item.description,
                                 path=str(item.path.relative_to(self.root)) if item.path.is_relative_to(self.root) else str(item.path),
-                                stamp_fresh=(syngatelib.compute_stamp(item) == item.reviewed) if item.reviewed else None,
+                                stamp_fresh=(syngatelib.item_stamp(items, uid) == item.reviewed) if item.reviewed else None,
                                 bindings=bindings)
 
         roots = sorted(uid for uid, item in items.items() if not item.parents)
@@ -216,6 +226,7 @@ class SyngateUIApp:
             "load_errors": load_errors + tree_errors,
             "coverage": {"files": self._coverage_files(), "errors": coverage_errors},
             "build_dir": self.build_dir,
+            "features": syngatelib.features(items),
             "connectors": {name: connector.settings() for name, connector in self.connectors.items()},
             "job": job.id if job and job.returncode is None else None,
         }
@@ -226,206 +237,37 @@ class SyngateUIApp:
         items, _ = syngatelib.load_tree(self.syngate_dir)
         return items
 
-    @staticmethod
-    def _check_parents(items, uid, parents):
-        if not isinstance(parents, list) or not all(isinstance(p, str) for p in parents):
-            raise ApiError(400, "'parents' must be a list of UIDs")
-        if len(set(parents)) != len(parents):
-            raise ApiError(400, "duplicate parents")
-        for parent in parents:
-            if parent == uid:
-                raise ApiError(400, "an item cannot be its own parent")
-            if parent not in items:
-                raise ApiError(400, f"unknown parent '{parent}'")
-        # Climbing the (edited) parent links from each new parent must never
-        # reach uid, or the DAG gains a cycle.
-        edges = {u: (parents if u == uid else item.parents) for u, item in items.items()}
-        seen = set()
-        stack = list(parents)
-        while stack:
-            node = stack.pop()
-            if node == uid:
-                raise ApiError(400, f"parents {parents} would create a cycle through '{uid}'")
-            if node in seen:
-                continue
-            seen.add(node)
-            stack.extend(p for p in edges.get(node, ()) if p in items)
-
-    @staticmethod
-    def _parse_order(value):
-        if value in (None, ""):
-            return 0
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ApiError(400, "'order' must be a number")
-        return value
-
-    @staticmethod
-    def _parse_bindings(item, names):
-        if names is None:
-            return None
-        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-            raise ApiError(400, "'tests' must be null or a list of binding names")
-        if len(set(names)) != len(names):
-            raise ApiError(400, "duplicate binding names")
-        if "" in names and len(names) > 1:
-            raise ApiError(400, "the default binding '' cannot be combined with named bindings")
-        for name in names:
-            if name and not syngatelib.BINDING_NAME_RE.match(name):
-                raise ApiError(400, f"invalid binding name '{name}' (want [a-z0-9_]+)")
-        old = item.tests or {}
-        return {(name or None): old.get(name or None) for name in names}
-
-    @staticmethod
-    def _fields(item):
-        """The editable fields in their wire form (bindings as a name list)."""
-        return {"header": item.header, "description": item.description, "parents": list(item.parents), "order": item.order,
-                "tests": None if item.tests is None else [name or "" for name in item.tests]}
+    # Every mutation from the page is the user's own act, so it passes `clear`:
+    # the stamps it moves are dropped, where an AI-proxied call leaves them
+    # standing over changed content and the review reads as violated.
 
     def save_item(self, uid, data):
-        """Partial update: only the fields present in `data` change. `base` maps
-        fields to the value the editor started from and turns the write into a
-        per-field compare-and-swap, so an autosave never silently overwrites an
+        """Partial update through the core edit call; `base` carries the values
+        the editor started from, so an autosave never silently overwrites an
         edit made on disk (agent, git, IDE) since the page loaded the item."""
         items = self._load()
-        item = items.get(uid)
-        if item is None:
-            raise ApiError(404, f"unknown UID '{uid}'")
-        before = self._fields(item)
-        if "header" in data:
-            item.header = str(data["header"] or "").strip()
-        if "description" in data:
-            text = str(data["description"] or "")
-            item.description = text if text.endswith("\n") else text + "\n"
-        if "parents" in data:
-            parents = data["parents"] or []
-            self._check_parents(items, uid, parents)
-            item.parents = parents
-        if "order" in data:
-            item.order = self._parse_order(data["order"])
-        if "tests" in data:
-            item.tests = self._parse_bindings(item, data["tests"])
-        base = data.get("base")
-        if not isinstance(base, dict):
-            base = {}
-        after = self._fields(item)
-        clashed = sorted(f for f in base if f in before and before[f] != base[f] and before[f] != after[f])
-        if clashed:
-            raise ApiError(409, f"{uid}: {', '.join(clashed)} changed on disk since the page loaded it", current={f: before[f] for f in clashed})
-        if after != before:
-            if item.reviewed and any(after[f] != before[f] for f in STAMPED_FIELDS):
-                syngatelib.clear_review(item)
-            syngatelib.write_item(item)
-        return {"ok": True, "stamp_fresh": (syngatelib.compute_stamp(item) == item.reviewed) if item.reviewed else None, "stored": after}
-
-    @staticmethod
-    def _placement(items, uid, siblings, index):
-        """{uid: order} landing `uid` at `index` among `siblings`: a free integer
-        strictly between the neighbours' keys when there is one (one file
-        written), else the whole family renumbered in steps of 10."""
-        below = items[siblings[index - 1]].order if index else None
-        above = items[siblings[index]].order if index < len(siblings) else None
-        if below is None and above is None:
-            return {}
-        if below is None:
-            key = math.floor(above) - 10
-        elif above is None:
-            key = math.floor(below) + 10
-        else:
-            key = math.floor((below + above) / 2)
-        if (below is None or below < key) and (above is None or key < above):
-            return {uid: key}
-        return {u: (n + 1) * 10 for n, u in enumerate(siblings[:index] + [uid] + siblings[index:])}
+        stored = _call(lambda: syngatelib.edit_item(items, uid, data, data.get("base"), clear=True))
+        item = items[uid]
+        return {"ok": True, "stamp_fresh": (syngatelib.item_stamp(items, uid) == item.reviewed) if item.reviewed else None, "stored": stored}
 
     def move_item(self, uid, data):
-        """Place `uid` under parent `to`, in front of sibling `before` (None =
-        last). Its link to parent `from` is re-pointed at `to`; `link` keeps it
-        and adds `to` as one more parent. `order` is one key per item, so a
-        multi-parent item carries the same key under each of its parents."""
         items = self._load()
-        item = items.get(uid)
-        if item is None:
-            raise ApiError(404, f"unknown UID '{uid}'")
-        source, target, before = data.get("from"), data.get("to"), data.get("before")
-        if target not in items:
-            raise ApiError(400, f"unknown parent '{target}'")
-        parents = list(item.parents)
-        if target not in parents:
-            if data.get("link") or source not in parents:
-                parents.append(target)
-            else:
-                parents[parents.index(source)] = target
-        elif source != target and source in parents and not data.get("link"):
-            parents.remove(source)
-        self._check_parents(items, uid, parents)
-        relinked = parents != item.parents
-        item.parents = parents
-        if relinked and item.reviewed:
-            syngatelib.clear_review(item)
-        family = syngatelib.sorted_children(items, syngatelib.children_map(items), target)
-        siblings = [c for c in family if c != uid]
-        if before is None:
-            index = len(siblings)
-        elif before in siblings:
-            index = siblings.index(before)
-        else:
-            raise ApiError(400, f"'{before}' is not a sibling under {target}")
-        orders = {} if siblings[:index] + [uid] + siblings[index:] == family else self._placement(items, uid, siblings, index)
-        written = {u for u, order in orders.items() if items[u].order != order} | ({uid} if relinked else set())
-        for u, order in orders.items():
-            items[u].order = order
-        for u in sorted(written):
-            syngatelib.write_item(items[u])
-        return {"ok": True, "written": sorted(written)}
+        written = _call(lambda: syngatelib.move_item(items, uid, data.get("to"), before=data.get("before"),
+                                                     source=data.get("from"), link=bool(data.get("link")), clear=True))
+        return {"ok": True, "written": written}
 
     def create_item(self, data):
         items = self._load()
-        uid = str(data.get("uid") or "")
-        if not syngatelib.UID_RE.match(uid):
-            raise ApiError(400, f"'{uid}' is not a valid UID")
-        if uid in items:
-            raise ApiError(400, f"{uid} already exists at {items[uid].path}")
-        parents = data.get("parents") or []
-        if not parents:
-            raise ApiError(400, "a new item needs at least one parent (the tree has exactly one root)")
-        self._check_parents(items, uid, parents)
-        folder = str(data.get("dir") or "").strip() or str(self.syngate_dir.relative_to(self.root))
-        directory = (self.root / folder).resolve()
-        if not directory.is_relative_to(self.syngate_dir.resolve()):
-            raise ApiError(400, f"directory '{folder}' is outside the syngate tree")
-        tests = None if data.get("kind") == "branch" else {None: None}
-        directory.mkdir(parents=True, exist_ok=True)
-        item = syngatelib.Item(uid=uid, path=directory / f"{uid}.yml", header="TODO",
-                           description="TODO: The component shall ...\n", parents=list(parents),
-                           order=self._parse_order(data.get("order", 0)), tests=tests)
-        syngatelib.write_item(item)
+        item = _call(lambda: syngatelib.add_item(items, str(data.get("uid") or ""), data.get("parents") or [],
+                                                 header=data.get("header"), description=data.get("description"),
+                                                 kind=data.get("kind"), folder=data.get("dir"),
+                                                 order=data.get("order", 0), syngate_dir=self.syngate_dir, clear=True))
         return {"ok": True, "path": str(item.path.relative_to(self.root))}
 
     def delete_item(self, uid):
         items = self._load()
-        item = items.get(uid)
-        if item is None:
-            raise ApiError(404, f"unknown UID '{uid}'")
-        children = sorted(syngatelib.children_map(items)[uid])
-        if children:
-            raise ApiError(400, f"{uid} still has children {children}; re-parent or delete them first")
-        item.path.unlink()
+        _call(lambda: syngatelib.delete_item(items, uid, clear=True))
         return {"ok": True}
-
-    @staticmethod
-    def _leaves_under(items, uid):
-        """An item stands for itself, if it carries tests, and every test-bearing item below it; anything else (pattern, typo) is the CLI's to judge."""
-        if uid not in items:
-            return [uid]
-        children, leaves, seen, stack = syngatelib.children_map(items), [], set(), [uid]
-        while stack:
-            node = stack.pop()
-            if node in seen:
-                continue
-            seen.add(node)
-            if items[node].is_leaf:
-                leaves.append(node)
-            stack.extend(reversed(syngatelib.sorted_children(items, children, node)))
-        return leaves
 
     # -- linked project files ---------------------------------------------
 
@@ -487,15 +329,30 @@ class SyngateUIApp:
         return {"ok": True, "stored": {"file": text}, "sha": hashlib.sha256(text.encode()).hexdigest()}
 
     def chat(self, data):
-        """One exchange anchored at `uid`: the item's seed context plus the user's text go to the chosen connector."""
+        """One exchange anchored at `uid`: the item's seed context plus the user's text go to the chosen connector.
+        A plain answer comes back as the reply; an answer of tree calls is applied to the tree and the reply lists what was applied."""
+        uid = data.get("uid")
         try:
-            reply, session = synthetic.query(self.connectors, self._load(), data.get("uid"), str(data.get("text") or ""), data.get("connector"),
+            reply, session = synthetic.query(self.connectors, self._load(), uid, str(data.get("text") or ""), data.get("connector"),
                                              data.get("model"), data.get("effort"), modes=data.get("modes") or (), session=data.get("session"))
         except synthetic.query_error as err:
             raise ApiError(400, str(err)) from None
         except synthetic.connection_error as err:
             raise ApiError(502, str(err)) from None
-        return {"ok": True, "reply": reply, "session": session}
+        try:
+            kind, payload = synthetic.parse_reply(reply)
+        except synthetic.protocol_error as err:
+            raise ApiError(422, f"answer refused: {err}", session=session) from None
+        if kind == "chat":
+            return {"ok": True, "reply": reply, "session": session}
+        items, applied = self._load(), []
+        for call in payload:
+            try:
+                applied.append(_call(lambda: synthetic.apply_call(items, uid, call, syngate_dir=self.syngate_dir)))
+            except ApiError as err:
+                named = uid if call["uid"] == "@" else call["uid"]
+                raise ApiError(err.status, "\n".join([*applied, f"{call['tool']} {named} refused: {err}"]), session=session) from None
+        return {"ok": True, "reply": "\n".join(applied), "session": session, "calls": payload}
 
     def start_run(self, data):
         action = data.get("action")
@@ -504,12 +361,14 @@ class SyngateUIApp:
         uids = data.get("uids")
         if not isinstance(uids, list) or not uids or not all(isinstance(u, str) and RUN_UID_RE.match(u) for u in uids):
             raise ApiError(400, "'uids' must be a non-empty list of UIDs or glob patterns")
+        items = self._load()
+        if action != "test" and not syngatelib.features(items)["review"]:
+            raise ApiError(400, str(syngatelib.feature_off("review")))
         argv = [*self.cli_prefix, action]
         if action == "clear":
             argv += uids
         else:
-            items = self._load()
-            leaves = list(dict.fromkeys(leaf for uid in uids for leaf in self._leaves_under(items, uid)))
+            leaves = list(dict.fromkeys(leaf for uid in uids for leaf in syngatelib.leaves_under(items, uid)))
             if not leaves:
                 raise ApiError(400, f"no test-bearing leaf under {', '.join(uids)}")
             argv += [*leaves, "--build-dir", str(data.get("build_dir") or self.build_dir), "--coverage-out", self.run_coverage]

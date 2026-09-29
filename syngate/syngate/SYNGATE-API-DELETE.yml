@@ -1,0 +1,5 @@
+header: Delete node
+description: "syngate delete. This action auto clears a parent nodes review. \n"
+parents: [SYNGATE-API]
+order: 50
+test: ~

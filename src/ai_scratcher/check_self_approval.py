@@ -22,6 +22,8 @@ import sys
 
 import yaml
 
+from .syngatelib import SHA_RE
+
 SYNGATE_GLOB = "syngate/"
 TEST_TREES = ("scripts/tests/", "test/")
 
@@ -37,20 +39,28 @@ def show_yaml(commit, path, cwd):
     return yaml.safe_load(result.stdout)
 
 
+def _keyed(item, key, legacy):
+    return item.get(key, item.get(legacy))
+
+
+def _sha(value):
+    return value if isinstance(value, str) and SHA_RE.match(value) else None
+
+
 def _test_shas(item):
-    tests = item.get("tests")
+    tests = _keyed(item, "test", "tests")
     if isinstance(tests, dict):
-        return sorted(sha for sha in tests.values() if isinstance(sha, str))
-    return [tests] if isinstance(tests, str) else []
+        return sorted(sha for sha in tests.values() if _sha(sha))
+    return [tests] if _sha(tests) else []
 
 
 def _binding_names(item):
-    tests = item.get("tests", None)
+    tests = _keyed(item, "test", "tests")
     return sorted(tests) if isinstance(tests, dict) else []
 
 
 def approval_of(item):
-    return item.get("reviewed") or None, _test_shas(item)
+    return _sha(_keyed(item, "review", "reviewed")), _test_shas(item)
 
 
 def substance_of(item):

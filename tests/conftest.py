@@ -44,16 +44,20 @@ def pytest_runtest_makereport(item, call):
             f.write(json.dumps(record) + "\n")
 
 
-def make_item(syngate_dir, uid, description, parents=(), header="", order=0, tests="absent", reviewed=None):
-    """Write a new-schema syngate item file; tests: 'absent' | None | sha | {name: sha}."""
+def make_item(syngate_dir, uid, description, parents=(), header="", order=0, tests="absent", reviewed=None, features=("test", "review")):
+    """Write a syngate item file; tests: 'absent' | None | sha | {name: sha}. A root (no parents) switches on `features`, both by default."""
     syngate_dir.mkdir(parents=True, exist_ok=True)
     data = {"header": header, "description": description, "parents": list(parents)}
     if order:
         data["order"] = order
     if tests != "absent":
-        data["tests"] = tests
+        data["test"] = tests
+    elif not parents:
+        data["test"] = "enabled" if "test" in features else "disabled"
     if reviewed is not None:
-        data["reviewed"] = reviewed
+        data["review"] = reviewed
+    elif not parents:
+        data["review"] = "enabled" if "review" in features else "disabled"
     (syngate_dir / f"{uid}.yml").write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
 

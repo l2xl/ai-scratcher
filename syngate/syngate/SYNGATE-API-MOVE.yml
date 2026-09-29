@@ -1,0 +1,6 @@
+header: Assign node parents
+description: |
+  syngate add and remove parents. The action auto clears review from altered parents.
+parents: [SYNGATE-API]
+order: 10
+test: ~

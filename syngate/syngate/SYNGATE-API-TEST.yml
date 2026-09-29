@@ -1,0 +1,6 @@
+header: Run node tests
+description: |
+  syngate test call. Run the tests for this node and all its children recursively. Set test stamp for nodes whose tests passes successfully if test option is enabled for the project.
+parents: [SYNGATE-API]
+order: 30
+test: ~

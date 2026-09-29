@@ -1,0 +1,6 @@
+header: Tree call answer
+description: |
+  An answer shall be either plain text or exactly one block of syngate API calls. An answer carrying both, or a malformed call, shall be refused.
+parents: [SYNTHETIC]
+order: 20
+test: ~

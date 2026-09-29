@@ -3,8 +3,10 @@
 # Copyright (c) 2026 l2xl (l2xl/at/proton.me)
 # Distributed under the Intellectual Property Reserve License, v2 (IPRL)
 
-"""Synergy Context Gate (syngate) CLI: new / test / review / clear / validate / report.
+"""Synergy Context Gate (syngate) CLI: the genuine spelling of every tree call.
 
+add / edit / move / delete are the tree mutations, each one line over the core
+call in syngatelib; the editor and the AI wrapper reach those same functions.
 `review` and `clear` are user-only: the reviewed stamp is the record of the
 user's approval. `test` runs the routines bound to items without stamping.
 `validate` is the CI gate entry point; `report` computes the recursive status
@@ -21,7 +23,6 @@ import tempfile
 from pathlib import Path
 
 from . import syngatelib
-from .syngatelib import Item
 
 
 def _load_or_die():
@@ -33,30 +34,82 @@ def _load_or_die():
     return items
 
 
-def cmd_new(args):
+def _mutate(run):
+    """Perform one core tree call, reporting what it did or why it was refused."""
     items, _ = syngatelib.load_tree()
-    if args.uid in items:
-        print(f"{args.uid}: already exists at {items[args.uid].path}", file=sys.stderr)
+    try:
+        print(run(items))
+    except syngatelib.tree_error as err:
+        print(err, file=sys.stderr)
         return 1
-    if not syngatelib.UID_RE.match(args.uid):
-        print(f"{args.uid}: not a valid UID", file=sys.stderr)
-        return 1
-    for parent in args.parent:
-        if parent not in items:
-            print(f"unknown parent '{parent}'", file=sys.stderr)
-            return 1
-    directory = syngatelib.ROOT / args.dir if args.dir else syngatelib.SYNGATE_DIR
-    directory.mkdir(parents=True, exist_ok=True)
-    item = Item(uid=args.uid, path=directory / f"{args.uid}.yml", header="TODO", description="TODO: The component shall ...\n", parents=list(args.parent), order=args.order, tests={None: None})
-    syngatelib.write_item(item)
-    print(f"created {item.path.relative_to(syngatelib.ROOT)}")
     return 0
 
 
-def _resolve(item, discovered):
+def cmd_add(args):
+    def run(items):
+        item = syngatelib.add_item(items, args.uid, args.parent, header=args.header, description=args.description,
+                                   kind="branch" if args.branch else "leaf", folder=args.dir, order=args.order,
+                                   clear=args.clear_review)
+        return f"created {item.path.relative_to(syngatelib.ROOT)}"
+    return _mutate(run)
+
+
+def cmd_edit(args):
+    changes = {field: value for field, value in (("header", args.header), ("description", args.description), ("order", args.order)) if value is not None}
+    if not changes:
+        print("nothing to edit: pass --header, --description or --order", file=sys.stderr)
+        return 1
+
+    def run(items):
+        syngatelib.edit_item(items, args.uid, changes, clear=args.clear_review)
+        return f"{args.uid}: {', '.join(sorted(changes))} updated"
+    return _mutate(run)
+
+
+def cmd_move(args):
+    def run(items):
+        written = syngatelib.move_item(items, args.uid, args.to, before=args.before, source=args.source,
+                                       link=args.link, clear=args.clear_review)
+        return f"{args.uid}: under {', '.join(items[args.uid].parents)}" + (f" -- rewrote {', '.join(written)}" if written else " -- already placed")
+    return _mutate(run)
+
+
+def cmd_delete(args):
+    def run(items):
+        return f"deleted {syngatelib.delete_item(items, args.uid, clear=args.clear_review).relative_to(syngatelib.ROOT)}"
+    return _mutate(run)
+
+
+def _require(items, feature):
+    """False, with the root switch to set printed, when the tree keeps the feature off."""
+    if syngatelib.features(items)[feature]:
+        return True
+    print(f"the tree's {feature} feature is off; switch it on with '{feature}: enabled' in the root item", file=sys.stderr)
+    return False
+
+
+def _addressable(items):
+    """The items `review` and `test` address: those with own tests, or -- with the test feature off -- the childless ones."""
+    if syngatelib.features(items)["test"]:
+        return lambda item: item.is_leaf
+    children = syngatelib.children_map(items)
+    return lambda item: not children[item.uid]
+
+
+def _bindings_of(item, discovered, tests_on):
+    """The binding names a run addresses. With the test feature on those are the
+    item's declared bindings; with it off nothing is declared, so whatever
+    routines are tagged for the item are run -- the switch withholds enforcement
+    and stamping, never the run itself."""
+    if tests_on:
+        return list(item.tests or {})
+    return [name for uid, name in discovered if uid == item.uid]
+
+
+def _resolve(item, discovered, names):
     """({binding: Location}, {binding: why it cannot run}) -- a binding runs only when exactly one routine carries its tag pair."""
     resolved, unrun = {}, {}
-    for name in item.tests:
+    for name in names:
         locations = discovered.get((item.uid, name), [])
         if len(locations) == 1:
             resolved[name] = locations[0]
@@ -144,7 +197,7 @@ def _expand_uids(items, uid_args, selectable, kind):
     return [uid for uid in selected if not (uid in seen or seen.add(uid))], errors
 
 
-def _review_one(items, structural, discovered, uid, build_dir, recording):
+def _review_one(items, structural, discovered, uid, build_dir, recording, stampable):
     own = [e for e in structural if e.startswith(f"{uid}:") and "reviewed stamp" not in e and "no stamped routine sha" not in e]
     if own:
         for line in own:
@@ -154,10 +207,10 @@ def _review_one(items, structural, discovered, uid, build_dir, recording):
     if item is None:
         print(f"unknown UID '{uid}'", file=sys.stderr)
         return False
-    if not item.is_leaf:
+    if not stampable(item):
         print(f"{uid}: branch items are reviewed through their children; nothing to stamp", file=sys.stderr)
         return False
-    resolved, unresolved = _resolve(item, discovered)
+    resolved, unresolved = _resolve(item, discovered, item.tests) if item.is_leaf else ({}, {})
     passed, unrun = _run_bound({uid: resolved}, build_dir) if not unresolved else (False, {})
     for name, why in [*unresolved.items(), *((name, why) for (_, name), why in unrun.items())]:
         recording.unrun(uid, name, why)
@@ -167,8 +220,9 @@ def _review_one(items, structural, discovered, uid, build_dir, recording):
     # Test-first TDD: the routine is frozen by hash as soon as it runs and resolves
     # unambiguously, whether it currently passes or fails. A stamped-but-failing leaf
     # rolls up as test_failed until the covering implementation lands and turns it green.
-    item.tests = {name: syngatelib.routine_sha(loc) for name, loc in resolved.items()}
-    item.reviewed = syngatelib.compute_stamp(item)
+    if item.is_leaf:
+        item.tests = {name: syngatelib.routine_sha(loc) for name, loc in resolved.items()}
+    item.reviewed = syngatelib.item_stamp(items, uid)
     syngatelib.write_item(item)
     state = "passing" if passed else "FAILING -- red, pending implementation"
     print(f"{uid}: reviewed ({item.reviewed}) -- bound test currently {state}")
@@ -177,7 +231,10 @@ def _review_one(items, structural, discovered, uid, build_dir, recording):
 
 def cmd_review(args):
     items = _load_or_die()
-    uids, errors = _expand_uids(items, args.uid, lambda item: item.is_leaf, "leaf")
+    if not _require(items, "review"):
+        return 1
+    stampable = _addressable(items)
+    uids, errors = _expand_uids(items, args.uid, stampable, "leaf")
     if errors:
         for line in errors:
             print(line, file=sys.stderr)
@@ -185,7 +242,7 @@ def cmd_review(args):
     structural = syngatelib.validate_structure(items)
     discovered = syngatelib.discover_bindings()
     with _Recording(args.coverage_out) as recording:
-        failed = [uid for uid in uids if not _review_one(items, structural, discovered, uid, args.build_dir, recording)]
+        failed = [uid for uid in uids if not _review_one(items, structural, discovered, uid, args.build_dir, recording, stampable)]
     if failed:
         print(f"review: {len(failed)}/{len(uids)} item(s) not stamped: {' '.join(failed)}", file=sys.stderr)
         return 1
@@ -195,16 +252,27 @@ def cmd_review(args):
 
 
 def cmd_test(args):
+    """Runs whichever way the test switch sits: off only means the tree does not
+    enforce that its items carry tests, so the routines tagged for them still
+    run and still record coverage. Stamping is `review`'s and stays gated."""
     items = _load_or_die()
-    uids, errors = _expand_uids(items, args.uid, lambda item: item.is_leaf, "leaf")
+    tests_on = syngatelib.features(items)["test"]
+    uids, errors = _expand_uids(items, args.uid, _addressable(items), "leaf")
     discovered = syngatelib.discover_bindings()
     resolved, unresolved = {}, {}
     for uid in uids:
         item = items.get(uid)
-        if item is None or not item.is_leaf:
-            errors.append(f"unknown UID '{uid}'" if item is None else f"{uid}: a branch binds no tests of its own")
+        if item is None:
+            errors.append(f"unknown UID '{uid}'")
             continue
-        resolved[uid], missing = _resolve(item, discovered)
+        names = _bindings_of(item, discovered, tests_on)
+        if not names:
+            # With the switch off the tree never claimed the item has a test, so
+            # having none is nothing to report; with it on, it binds none by mistake.
+            if tests_on:
+                errors.append(f"{uid}: a branch binds no tests of its own")
+            continue
+        resolved[uid], missing = _resolve(item, discovered, names)
         unresolved.update({(uid, name): why for name, why in missing.items()})
     with _Recording(args.coverage_out) as recording:
         passed, unrun = _run_bound(resolved, args.build_dir)
@@ -220,6 +288,8 @@ def cmd_test(args):
 
 def cmd_clear(args):
     items = _load_or_die()
+    if not _require(items, "review"):
+        return 1
     uids, errors = _expand_uids(items, args.uid, lambda item: bool(item.reviewed), "reviewed")
     if errors:
         for line in errors:
@@ -297,12 +367,40 @@ def main():
     parser.add_argument("--root", help="managed project root (default: SYNGATE_ROOT, else the nearest ancestor of the working directory holding syngate/)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("new", help="scaffold a syngate item")
-    p.add_argument("uid")
+    def mutation(name, help):
+        """A tree call: `--clear-review` is the user standing behind the change, dropping
+        the stamps it moves. Omitted -- as when proxying an AI answer -- those stamps are
+        left over changed content and the review reads as violated."""
+        p = sub.add_parser(name, help=help)
+        p.add_argument("uid")
+        p.add_argument("--clear-review", action="store_true",
+                       help="drop the review stamp of every item this call moves, instead of leaving it violated")
+        return p
+
+    p = mutation("add", "scaffold a syngate item")
     p.add_argument("--parent", action="append", required=True)
     p.add_argument("--dir", help="folder under the repo root, e.g. syngate/infra")
     p.add_argument("--order", type=int, default=0)
-    p.set_defaults(func=cmd_new)
+    p.add_argument("--header")
+    p.add_argument("--description")
+    p.add_argument("--branch", action="store_true", help="carry no test binding of its own")
+    p.set_defaults(func=cmd_add)
+
+    p = mutation("edit", "change an item's header, description or sibling order")
+    p.add_argument("--header")
+    p.add_argument("--description")
+    p.add_argument("--order", type=int)
+    p.set_defaults(func=cmd_edit)
+
+    p = mutation("move", "add and remove an item's parent links, and place it among its siblings")
+    p.add_argument("--to", required=True, help="the parent to place it under")
+    p.add_argument("--before", help="sibling to land in front of (default: last)")
+    p.add_argument("--from", dest="source", help="the parent link to re-point, or -- with --to another parent -- the link to drop")
+    p.add_argument("--link", action="store_true", help="add --to as one more parent instead of re-pointing")
+    p.set_defaults(func=cmd_move)
+
+    p = mutation("delete", "remove a childless item")
+    p.set_defaults(func=cmd_delete)
 
     p = sub.add_parser("review", help="user-only: run bound tests, stamp routine shas + reviewed (stamps even on a failing test -- TDD red state)")
     p.add_argument("uid", nargs="+", help="UID(s) or glob pattern(s) like 'BUOY-00?' / 'BUOY-*' (quote patterns for the shell); patterns select leaves only")

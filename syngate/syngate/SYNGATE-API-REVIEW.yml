@@ -1,0 +1,8 @@
+header: Review node
+description: |
+  syngate review. Stamp node review. Call first recursively per children (and so all the subtree) then itself. The call must fail if intentionally if:
+  1. review option is switched off for the project (no red bullet in ths case), or
+  2. the node was changed.
+parents: [SYNGATE-API]
+order: 40
+test: ~

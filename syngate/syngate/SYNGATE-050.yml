@@ -1,0 +1,5 @@
+header: Feature options
+description: |
+  A switched-off feature shapes the commands the tree accepts: the review feature closes the commands that write stamps, the test feature withholds stamping alone.
+parents: [SYNGATE]
+order: 90

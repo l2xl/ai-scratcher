@@ -201,7 +201,7 @@ def test_edit_of_a_stamped_field_clears_the_review(server, syngate_tree):
     syngatelib.write_item(frozen)
     call(base, app, "/api/move/LEAF-002", {"from": "ROOT", "to": "BRANCH-A", "before": None})
     moved = yaml.safe_load((syngate_dir / "LEAF-002.yml").read_text())
-    assert moved["parents"] == ["BRANCH-A"] and "reviewed" not in moved and moved["tests"] is None
+    assert moved["parents"] == ["BRANCH-A"] and "review" not in moved and moved["test"] is None
 
 
 @pytest.mark.syngate("SYNGATE_UI-032", "guard")
@@ -224,7 +224,7 @@ def test_partial_save_touches_only_named_fields_and_refuses_to_clobber_disk_edit
     status, result = call(base, app, "/api/item/LEAF-001", {"header": "Typed", "base": {"header": "First leaf"}})
     assert status == 200 and result["stored"]["header"] == "Typed"
     on_disk = yaml.safe_load(path.read_text())
-    assert on_disk == {"header": "Typed", "description": "It shall leaf.\n", "parents": ["ROOT"], "tests": None}
+    assert on_disk == {"header": "Typed", "description": "It shall leaf.\n", "parents": ["ROOT"], "test": None}
     path.write_text(path.read_text().replace("It shall leaf.", "It shall leaf, said the agent."))
     status, _ = call(base, app, "/api/item/LEAF-001", {"header": "Typed more", "base": {"header": "Typed"}})
     assert status == 200  # an on-disk edit of another field rebases silently
@@ -285,7 +285,7 @@ def test_new_and_delete_manage_item_files(server, syngate_tree):
     status, _ = call(base, app, "/api/new", {"uid": "LEAF-003", "parents": ["ROOT"], "dir": "syngate/sub", "kind": "leaf"})
     assert status == 200
     created = yaml.safe_load((syngate_dir / "sub" / "LEAF-003.yml").read_text())
-    assert created["parents"] == ["ROOT"] and created["tests"] is None
+    assert created["parents"] == ["ROOT"] and created["test"] is None
     with pytest.raises(urllib.error.HTTPError) as duplicate:
         call(base, app, "/api/new", {"uid": "LEAF-003", "parents": ["ROOT"]})
     assert duplicate.value.code == 400
@@ -609,3 +609,70 @@ def test_the_splitter_resizes_the_outline_and_double_click_resets_it(page):
     page.mouse("mousePressed", target + 2, y, clicks=2)
     page.mouse("mouseReleased", target + 2, y, clicks=2)
     assert page.eval(width) == default and page.eval("sessionStorage.getItem('syngate-ui-tree-width')") is None
+
+
+class CallsConnector(EchoConnector):
+    """Answers with one fixed reply, whatever the question."""
+
+    def __init__(self, reply):
+        super().__init__()
+        self.reply = reply
+
+    def dispatch(self, context, text, model=None, effort=None, modes=(), session=None):
+        return self.reply, "session-2"
+
+
+def _chat(server, reply, uid="ROOT"):
+    base, app = server
+    app.connectors = {"echo": CallsConnector(reply)}
+    return call(base, app, "/api/chat", {"uid": uid, "connector": "echo", "model": "model-a", "effort": "low", "text": "Go."})
+
+
+@pytest.mark.syngate("AI_CHAT-040")
+def test_a_tree_call_answer_is_applied_to_the_tree_and_a_mixed_one_refused(server, syngate_tree):
+    syngate_dir, _ = syngate_tree
+    calls = [{"tool": "add", "uid": "NEW-001", "header": "New branch", "description": "It groups.", "kind": "branch"},
+             {"tool": "add", "uid": "NEW-002", "parent": "NEW-001", "header": "New leaf", "description": "It shall be new.\n"},
+             {"tool": "move", "uid": "LEAF-001", "to": "NEW-001", "before": "NEW-002"},
+             {"tool": "remove", "uid": "NEW-002"}]
+    status, result = _chat(server, "```syngate\n" + json.dumps(calls) + "\n```")
+    assert status == 200 and result["session"] == "session-2" and result["calls"] == calls
+    assert result["reply"] == "- added NEW-001 under ROOT\n- added NEW-002 under NEW-001\n- moved LEAF-001 under NEW-001\n- removed NEW-002"
+    items, errors = syngatelib.load_tree(syngate_dir)
+    assert errors == [] and sorted(items) == ["LEAF-001", "NEW-001", "ROOT"]
+    assert (items["NEW-001"].header, items["NEW-001"].description, items["NEW-001"].parents, items["NEW-001"].tests) == ("New branch", "It groups.\n", ["ROOT"], None)
+    assert items["LEAF-001"].parents == ["NEW-001"] and items["LEAF-001"].tests == {None: None}
+    status, result = _chat(server, "Just talking.")
+    assert (status, result["reply"]) == (200, "Just talking.")
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        _chat(server, "Applying:\n```syngate\n" + json.dumps(calls[:1]) + "\n```")
+    body = json.loads(refused.value.read())
+    assert refused.value.code == 422 and body["session"] == "session-2" and "never both" in body["error"]
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        _chat(server, "```syngate\n" + json.dumps([{"tool": "add", "uid": "NEW-003", "header": "H", "description": "D"}, {"tool": "remove", "uid": "@"}]) + "\n```")
+    body = json.loads(refused.value.read())
+    assert refused.value.code == 400 and body["error"].startswith("- added NEW-003 under ROOT\nremove ROOT refused: ROOT still has children")
+    assert sorted(syngatelib.load_tree(syngate_dir)[0]) == ["LEAF-001", "NEW-001", "NEW-003", "ROOT"]
+
+
+@pytest.mark.syngate("SYNGATE_UI-044")
+def test_a_feature_switched_off_has_no_affordances_on_the_page(server, chrome, syngate_tree):
+    base, app = server
+    syngate_dir, make_item = syngate_tree
+    make_item(syngate_dir, "ROOT", "Root branch\n", parents=(), features=())
+    make_item(syngate_dir, "LEAF-001", "It shall leaf.\n", parents=("ROOT",), header="First leaf")
+    page = Page(chrome, f"{base}/?token={app.token}")
+    page.wait("document.querySelector('#tree [data-uid=\"LEAF-001\"]')")
+    gone = "[Boolean(document.querySelector('#tree .dot:not([hidden])')), Boolean(document.querySelector('#tree [data-act=\"tests\"]')), document.querySelectorAll('#tree .badge').length]"
+    assert page.eval(gone) == [False, False, 0]
+    pill = "document.querySelector('#doc .block[data-uid=\"LEAF-001\"] .block-status .pill')"
+    entries = "[...document.querySelectorAll('#status-menu [data-run]')].map((el) => el.dataset.run + ':' + el.textContent)"
+    assert page.eval(f"{pill}.textContent.trim()") == "▶ run"  # the tree awaits no tests, but a run stays offered
+    page.eval(f"{pill}.click()")
+    assert page.eval(entries) == ["test:▶ Run test"]
+    page.eval("document.getElementById('status-menu').hidePopover()")
+    make_item(syngate_dir, "ROOT", "Root branch\n", parents=(), features=("review",))
+    page.wait(f"{pill}.textContent.trim() === '○ not reviewed'")  # picked up by the fingerprint poll
+    assert page.eval("[...document.querySelectorAll('#tree [data-uid=\"LEAF-001\"] .dot, #tree [data-act=\"tests\"]')].map((el) => [el.className, el.hidden])") == [["dot gray", False]]
+    page.eval(f"{pill}.click()")
+    assert page.eval(entries) == ["test:▶ Run test", "review:✓ Mark reviewed"]
