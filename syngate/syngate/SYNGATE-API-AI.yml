@@ -5,4 +5,5 @@ description: |
   2. In the cases user made UI changes to syngate items clears the review, AI initiated changes makes the review violated in order to highlight the change
 parents: [SYNTHETIC-020]
 order: -10
-test: ~
+test: ed07a67c41888d305e53bd201253fa053ab028719c18cf65171a75709a92830c
+review: d45cb75415e2f350a86e8938958b097c42b83d4ce6c5a1a9955f01c5c0c4cd20

@@ -2,4 +2,5 @@ header: Add node
 description: |
   syngate add call
 parents: [SYNGATE-API]
-test: ~
+test: 70a6523923796342f20bf37ffb4bbebddf21a449c9cb1ca1150af644e024a259
+review: 5a23d544b88f66fea952ac4d9b11eeb958f74ba3ee42923ab02a2f7729dfa7c9

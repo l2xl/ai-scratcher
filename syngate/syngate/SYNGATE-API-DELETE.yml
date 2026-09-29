@@ -2,4 +2,5 @@ header: Delete node
 description: "syngate delete. This action auto clears a parent nodes review. \n"
 parents: [SYNGATE-API]
 order: 50
-test: ~
+test: f5791067bdf2aab55027534a96da5c642ceb8d8dcc1ff677f6db216cdb767db1
+review: f84927fdd38ed838bc822de7a87b05951ca0d765880364a06716a628bc5a8760

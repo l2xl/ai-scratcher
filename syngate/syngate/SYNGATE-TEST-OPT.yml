@@ -3,4 +3,5 @@ description: |
   `test: enabled|disabled` on the root item, off when absent. Off: the tree awaits no tests — items carry no bindings, `test` still runs the routines tagged for an item and records their coverage, and `review` stamps a childless item without running anything. On: items carry `test` bindings, `review` runs and freezes them, and an item without a binding of its own is not reviewable on its own.
 parents: [SYNGATE-050]
 order: 10
-test: ~
+test: a147cb89b042e22f8f1f47ae0cab8426bef37686a8ecc1dd046c62b146705337
+review: def181f573c8ee77b8f71a890fd270f095635445fab55413acdb12201a6343af

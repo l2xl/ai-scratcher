@@ -3,4 +3,5 @@ description: |
   Python based tools/API to work with syngate DAG. The calls except test and review has option to clear review to signal the change is intentional. The option is omitted by default.
 parents: [SYNGATE, SYNTHETIC-020]
 order: -20
-test: ~
+test: 4cb9269ded0fc2cf51f4e405d61ec1384b14b7cac1626f8f01f28073eb1c3513
+review: bf6aea71ab8e067b90c545c4fee958c376ace568fde1bb7f9542b4d91182870d

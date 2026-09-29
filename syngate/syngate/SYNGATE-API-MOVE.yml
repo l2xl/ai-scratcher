@@ -3,4 +3,5 @@ description: |
   syngate add and remove parents. The action auto clears review from altered parents.
 parents: [SYNGATE-API]
 order: 10
-test: ~
+test: 454c5955b408ba035d181f93b3392ee4d3422e4aa21f941b219ea60ea87336a9
+review: ced16aab145f80544f406e16c0665d16c606a80e40532cee4ef29e09e6c45cec

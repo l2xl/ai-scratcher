@@ -3,4 +3,5 @@ description: |
   The root item shall switch the tree's test and review features on with `test: enabled` and `review: enabled` — a root's own binding or stamp switching its feature on as well — both being off when absent, and an item carrying bindings or a stamp while its feature is off shall be a layout problem.
 parents: [INFRA-046]
 order: 40
-test: ~
+test: bf447c802f615db02b5205c016dda63e396f2a2a337a1bcaf6f1d5858a9e07ad
+review: d834751e5f2dfa462f8a7447c047660ded98e83a57bc5990bf85f758eea97176

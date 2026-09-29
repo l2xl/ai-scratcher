@@ -3,4 +3,5 @@ description: |
   syngate test call. Run the tests for this node and all its children recursively. Set test stamp for nodes whose tests passes successfully if test option is enabled for the project.
 parents: [SYNGATE-API]
 order: 30
-test: ~
+test: 3ecd8091287f8eed574b3d27ef07b724ba60645fe512b0e33c5bfe4d0ff528d5
+review: 6c2b1b108bcb2f7a7a845a4ee609bdc9c93f201a750016b28238525bbbd4f105

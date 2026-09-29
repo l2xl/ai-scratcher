@@ -3,4 +3,5 @@ description: |
   An item's bindings and stamp shall be read from the `test` and `review` keys as well as from their old spellings `tests` and `reviewed`, and written back as `test` and `review`.
 parents: [INFRA-046]
 order: 50
-test: ~
+test: 295acc5bf900bef5cb9f5a37b3467f029fbd240d003b4cc38d1f4dd813ecf088
+review: b5ab2e6ea2482b575cfafa1d75397eff49da822e6652ab039258ce68379c6a9a

@@ -3,4 +3,5 @@ description: |
   syngate edit call. Intended to change head and description. This action  clear the review stamp from edited item.
 parents: [SYNGATE-API]
 order: 20
-test: ~
+test: c8a91730319b42aa5057f75de9b89543efab632fd9a80ad297d9d7e5cd20d6b0
+review: 20f6dabf7434ecef62a88d323e03ec98e0bf5730e7faa2b890f0f809395b8a84

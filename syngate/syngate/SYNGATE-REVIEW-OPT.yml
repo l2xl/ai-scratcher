@@ -3,4 +3,5 @@ description: |
   `review: enabled|disabled` on the root item, off when absent. Off: no item carries a stamp, and `review` and `clear` refuse naming the switch to set. On: `review` stamps an item and `clear` drops its stamp.
 parents: [SYNGATE-050]
 order: 20
-test: ~
+test: 9101cc07b5fd4f494497e1174e46be9dcecab55653fd4a033976effe4e479c37
+review: 3fb759bdad547c0ccd6ca2d87673fbb9104bd7530f82865c3d1acc287b7f2ae8

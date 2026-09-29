@@ -3,4 +3,5 @@ description: |
   The Claude Code connector shall append the tree call protocol to the system prompt and deny direct edits of the files under syngate/ in every mode.
 parents: [CLAUDE_CODE]
 order: 50
-test: ~
+test: b11a54735504da84aa44b74879a7b00c49c333e28fd47adb4983a4f0183f912c
+review: a95ac8859e8e9e8b9233d919579bf61a094d0726728256d23f2d8103d5e3caee
