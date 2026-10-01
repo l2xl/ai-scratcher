@@ -3,4 +3,5 @@ description: |
   User messages shall be styled as the description text; AI replies shall be aligned right and highlighted.
 parents: [AI_CHAT]
 order: 90
-test: ~
+test: 4b179f345424533b3544b99d6d3f3c4b960b68591bf0614e0299b013a1996b1e
+review: fecda5c088c42ce099cc795d5bc8e08c174513bea45b639709b1878f275974dd

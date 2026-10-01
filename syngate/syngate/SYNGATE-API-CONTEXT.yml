@@ -3,4 +3,5 @@ description: |
   The syngate context call shall return an item's seed AI-context exactly as an AI call anchored at the item is seeded from it.
 parents: [SYNGATE-API]
 order: 70
-test: ~
+test: b89d2c7a540ee9e4f13087d60473020e3b596cbb68a9ba5dff2f0242f42b0512
+review: 6c4b77347572ba387f4eb7097ba578e9229b0ad45cdecc787b93a029cc4d757a

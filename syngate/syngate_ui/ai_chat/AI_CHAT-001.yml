@@ -3,4 +3,5 @@ description: |
   AI Scratcher must support several AI chat windows opened simulateneously.
 parents: [AI_CHAT]
 order: 10
-test: ~
+test: e0307edb131ccc3e47a6f874ce39bacd4eb6e172d11682eeb46b59533bde48b6
+review: 0c96227c0e4fd06691e8d0477a2dc6fd7024046ea01e2d1a6d2af66f0015fd4b

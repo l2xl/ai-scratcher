@@ -4,4 +4,5 @@ description: |
   The click on the tree row itself must not activate or scroll to its content panel, double click - should scroll and activate. If the corresponding content panel is already within visible area - it must not scroll the content
 parents: [SYNGATE_UI-040]
 order: 20
-test: ~
+test: 5faf46b6daf0069b5faec34e52c6238b654dbac950686a295af053922ac42121
+review: 730bf0e941a655878e65124872c8b40658ffe8465c2ea016cd6605279d14fbb0

@@ -15,4 +15,5 @@ description: |
   - No stamp - the circle stays empty (no glyph)
 parents: [SYNGATE_UI-040]
 order: 10
-test: ~
+test: ca598b04ddc4e3e65405b64c965af9a6e910bacd949880cb46e67ae4cb8edbd3
+review: 1165f7f0f7fc451687750c1e6f9bf75b9fb31bfad374d8a92803ef5c9850b295

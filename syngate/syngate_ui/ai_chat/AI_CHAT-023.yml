@@ -3,4 +3,5 @@ description: |
   On a selected item not being edited the panel shall show the reply field directly, with no separate AI chat tool button; typing there starts the chat without changing the item.
 parents: [AI_CHAT]
 order: 70
-test: ~
+test: 83b25c197caea181f502631d8ce24c1135789997a335ed8e40f5ff714f580363
+review: 66abad246d351dd83c0bde99bcb78983351fd23d7121f7f4dc38725b518469eb

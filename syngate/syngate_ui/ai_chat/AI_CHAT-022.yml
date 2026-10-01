@@ -3,4 +3,5 @@ description: |
   Editing the item's description shall start a chat whose first message is the modified text: the AI controls appear on the bottom border while editing so the setup can be chosen before save or send, and the send button or Ctrl+Enter saves the item and sends its statement.
 parents: [AI_CHAT]
 order: 60
-test: ~
+test: 4ef96432b75d1d236868918f0a4ff2d26f26f2bb26ee7dbaa69cd2c14de3410a
+review: eba31b2387b761ded49256a9cc39a5afbde3c8414309b11566a57e8a98d1a8d9

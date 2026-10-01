@@ -3,4 +3,5 @@ description: |
   Provide prompt library and add appropriate prompt to context automatically
 parents: [SYNTHETIC]
 order: 40
-test: ~
+test: f12733ef65e0c70ebcc5eb575e43dff5f8fe76c6b2c4a73d421a069d799d67f8
+review: 888904bb4714871730523d830582feda9395bdf1041b05bbc8ae90a6650e94fe

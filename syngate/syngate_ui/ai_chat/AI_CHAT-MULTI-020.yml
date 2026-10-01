@@ -3,4 +3,5 @@ description: |
   Support parallel AI sessions within simulateneously opened chat windows linked to different items
 parents: [AI_CHAT-001]
 order: 10
-test: ~
+test: c4c3c52810da9e27d37bd3a96fa475493212c140bbf4c2c19b6d2bf5f3183bec
+review: c0e8da262483ff22fd26cba1080d1675ada61ab4b7c683b712623300cf297e86

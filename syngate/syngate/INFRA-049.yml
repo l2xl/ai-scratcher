@@ -3,4 +3,5 @@ description: |
   On explicit user approval a requirement shall be frozen by recording a transparent fingerprint of the item's content and a per-binding hash of each bound test routine's source span, with the gate failing when a frozen routine changes after review and a single commit never both modifying a frozen item or its bound routine and re-approving it
 parents: [SYNGATE]
 order: 40
-test: ~
+test: 8a175575c59fecd11433c1f08ff26aef75d2000a5e9016c9aa867fd3ec7f9641
+review: 5232f5540e8ce168b7803d46e6abb110fe33fd54f16b4d4cab4d823952f07407

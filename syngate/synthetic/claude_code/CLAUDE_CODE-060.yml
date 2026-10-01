@@ -3,4 +3,5 @@ description: |
   The Claude Code connector shall hand the Syngate API tools to the turn as the JSON schema of its structured answer and return that structured output in place of the reply text.
 parents: [CLAUDE_CODE]
 order: 60
-test: ~
+test: c45d7ed73c7f8e8526f19055d8ff0a99bf7af8f1c50c41b4e4e3cc04a249874d
+review: 533c1ac935d4210245b65accd47403bd15bb748a9b97237b83f759118893ab24

@@ -3,4 +3,5 @@ description: |
   Clicking the reply field right after an edit shall save the item and wait for one more message before anything is sent to the AI.
 parents: [AI_CHAT]
 order: 80
-test: ~
+test: 91a72d08b39f5b15c880ad4956a56acafea36c0a142e72fd0476154ba58280ac
+review: 5da247d7e0b556b1ad76b439cecdb51694a4d97900c33ee4f201e74bb8da3813

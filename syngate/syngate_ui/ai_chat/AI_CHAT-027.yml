@@ -3,4 +3,5 @@ description: |
   Every reply but the first shall carry two buttons turning it into a syngate item, as a child of the anchored item or as its next sibling, while the chat stays as it is.
 parents: [AI_CHAT]
 order: 107
-test: ~
+test: 0a36c607f4035b008fee8617c047e33ba6bb7349bfaeda67fe17661598f9e0a8
+review: ad057e39adbbfe7cd8a8f3d3e4f7fca46871cf67282b5d0fce3acb6a34729738

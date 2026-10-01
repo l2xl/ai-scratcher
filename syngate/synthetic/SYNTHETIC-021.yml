@@ -3,4 +3,5 @@ description: |
   The results of the query, context and test calls in an applied answer shall be sent back into the same session as the next prompt, the exchange continuing until an answer carries no read and no run.
 parents: [SYNTHETIC-020]
 order: 10
-test: ~
+test: bc9f01b87f989feca77e2fd51985d515aedab04bab6dfe7ba676fdc13705f186
+review: 2a302a76fbe81b691a121642d7d36199ad0e785c8d54acdae1015911c7666f9d

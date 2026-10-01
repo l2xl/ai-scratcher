@@ -3,5 +3,5 @@ description: |
   Query AI-connection selecting the connection itself, exact LLM model and effort
 parents: [SYNTHETIC]
 order: 20
-test: b4b84f918c4ce3cae3a864d113771648793bea8952d7cf06ecfe9fb827b35894
-review: bc106fd447e874e8ac599730e753e245b841fda7d94b5fb7619b528829d86b8d
+test: 724bdd5b6c6e475e5523c8c6bed4e71374d15d3ca529537d9966cd8da62ffdf4
+review: e19b6b767e3114fc382b625bbf3455b165013a3cadc42ab4c7f1c985953158b1

@@ -2,4 +2,5 @@ header: Wrong review stamp  not error
 description: |
   Wrong review stamp format should be treated as its abcense not error
 parents: [INFRA-049]
-test: ~
+test: 00d8ca16d200630b108a785fb08594d534af615b34ca1ff4c4a14e65373faec0
+review: 2d565a536a6fe1a181e3b9b22f70cf17faff900a7f3ab9b807c8ad3c3dff5eca

@@ -3,5 +3,5 @@ description: |
   With a feature switched off the page shall show none of its affordances — without test no test axis or bindings button; without review no review mark, review or clear run — while a test run stays offered whichever way the switches sit.
 parents: [SYNGATE_UI-040]
 order: 40
-test: 8eeed493a7164916ba5f41bb724267cb28cf249736de5c25f04c73e21f9c3f15
-review: f2f5ecae9ed3ad11c62a1c6d428a5b4beea6db058dcd2042ae53918eca77f9a0
+test: 941d45b060f6de8477bbd42a85dc0ce250fa3602aacee78ca29e1d3b349c7df1
+review: b4c27bb0f95f371669db6267f7f8463251dd61aa643ce99d70dfc119bcda5872

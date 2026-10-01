@@ -3,4 +3,5 @@ description: |
   The AI chat shall be a part of the item's content panel, the item's description being the first message of the exchange and shown once as the content itself; the chat offers selectors for AI connector, model and effort, and a send button. Details: [AI_CHAT.md](AI_CHAT.md).
 parents: [SYNGATE_UI-030, SYNGATE_UI-043]
 order: 70
-test: ~
+test: 2071c27fa55a47b8eb9743a3b13aeeeb371ac6d9885bdf88a452cb39cd582c36
+review: 0a210c18abca95c2269031d47e6647839ee9fe2573041dc96045c248365a673c

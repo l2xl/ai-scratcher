@@ -3,4 +3,5 @@ description: |
   The Claude Code connector shall end a turn on request by killing the `claude` process of the thread running it, the dispatch then failing as a connection error.
 parents: [CLAUDE_CODE]
 order: 80
-test: ~
+test: 3f0b9587930e5955c02c503375957bf9b394ab62b72b48007fdbc150e645f4b1
+review: 0205687cab83232c5864325feb10933ec45f3aa61684125f37a0b088eaa1c37c

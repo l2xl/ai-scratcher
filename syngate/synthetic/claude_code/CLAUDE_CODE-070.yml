@@ -3,4 +3,5 @@ description: |
   A turn of the Claude Code connector shall last until the `claude` process exits — every subagent and workflow launched in the turn having reported and the model having answered again — the output of that last answer being the turn's answer.
 parents: [CLAUDE_CODE]
 order: 70
-test: ~
+test: 6fd49e542b0a717538b586851acafb6324a582544de0bdd114fe2f9c6132afdd
+review: 0a249c31389f2cb4a41a37235aac24224681a11f0cc27785d38718cbdbef185a

@@ -3,4 +3,5 @@ description: |
   The syngate query call shall return an item's header, description, parents, children in sibling order and kind.
 parents: [SYNGATE-API]
 order: 60
-test: ~
+test: acd1e6d3750c4c770d1a5c8ee04d82012fb7194647d2359ca069bf3efcc152b2
+review: 0b03bfcabc5f1f65eb6f71bc57d8081d9b87390fcc96124a25c37d18f52f4a0f

@@ -2,4 +2,5 @@ header: Default prompt
 description: |
   Create default prompt (not CLAUDE.md) with instructions for syngate API usage through structured AI response: [src/ai_scratcher/prompts/default.md](src/ai_scratcher/prompts/default.md)
 parents: [AI_CHAT-PROMPTS]
-test: ~
+test: b459cec9f08978d64a923d69239c9c93a8cb7f176b84ec7e025b37bfec390999
+review: 038a37b2600fd62331c62a9941fac2145d66f16d7939b976fbe2b0db1bfa02a1

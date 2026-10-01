@@ -2,4 +2,5 @@ header: Test run as a tool call
 description: |
   `{"tool": "test", "uid": "@"|UID|glob, "name": binding}` shall run the routines bound to the leaves under the named item — every `test` call of a batch joins one run, so any subset of the tree runs at once, a `name` narrowing a leaf to one binding — through the same runner as the page's ▶ run: the records land in the run coverage, the statuses recolor, and a run live elsewhere refuses the call. The harness waits for the run's end and hands its outcome back as the next message of the same session, the way a query's result is: one line per leaf with its binding and pass/fail, then the captured output of every failed routine. Review stamping stays the user's act: there is no review call for the AI.
 parents: [SYNGATE-API-AI]
-test: ~
+test: ec7dc2bc765db4aa9b519114a6b71e3cc8dc77d2490fd00f595f0b02841ac2c5
+review: 2aa05474c1f55acf4b83baf3b0fa5d7096772e415fcca8e616c4794d6361c912

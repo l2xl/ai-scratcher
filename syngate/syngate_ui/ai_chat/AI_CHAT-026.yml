@@ -3,4 +3,5 @@ description: |
   Every reply but the first shall carry at its left edge, level with its first line, a collapse/expand button and a check mark on by default; switched off, the message is dropped from the exchange temporarily and its text greyed.
 parents: [AI_CHAT]
 order: 105
-test: ~
+test: 0bfb1b9d92e9b2505f22fffb4fd9757c948fd297c5d77da677e2887ec65581ad
+review: d98659d6958b7a5ac25fdf38b34bf33dc882f2c2710672264d595681c53d3fc7

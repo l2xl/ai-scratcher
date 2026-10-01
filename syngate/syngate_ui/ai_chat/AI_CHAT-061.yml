@@ -3,4 +3,5 @@ description: |
   While a turn runs — a single answer or one awaiting subagents or a workflow — the chat's close check mark shall turn into a stop button, close and collapse being unavailable until the turn ends; stop interrupts the connector's process, the calls applied so far stay applied, and the chat shows the turn as stopped with the close mark and send offered again.
 parents: [AI_CHAT]
 order: 130
-test: ~
+test: ad80a1db95cdc402fb58805b462c3caa63c4b0c9087baa72571e539babf00337
+review: fc88cd9b30e1e463216b3a0de66b4af01544f45f729d81e909e7207add5ccc17

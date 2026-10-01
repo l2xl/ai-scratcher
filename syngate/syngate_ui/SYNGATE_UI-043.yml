@@ -3,4 +3,5 @@ description: |
   An item's content panel shall carry the common status label without title, without any menu, on its top border, and the test and review status button at its bottom-right corner — whose hover popup lists the test details and validation problems colored by status.
 parents: [SYNGATE_UI-040]
 order: 30
-test: ~
+test: 213b3cf0329a98cdfb5a7ca7eef14c4dc46f9a8d5f55d47aad780a4c7683c75c
+review: 28962e4f2240b5813b76e5f627048783ebbe7487ca7c58f264fefca6e810f601
