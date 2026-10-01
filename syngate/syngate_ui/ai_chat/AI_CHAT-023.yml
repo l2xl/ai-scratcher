@@ -1,0 +1,6 @@
+header: Chat started on a selected item
+description: |
+  On a selected item not being edited the panel shall show the reply field directly, with no separate AI chat tool button; typing there starts the chat without changing the item.
+parents: [AI_CHAT]
+order: 70
+test: ~

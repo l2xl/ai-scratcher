@@ -158,6 +158,9 @@ is their genuine spelling rather than a second implementation.
   has several, `--link` adds `--to` as one more parent instead of re-pointing, and a `--from` that
   is a parent while `--to` already is another drops the `--from` link.
 - `syngate delete <UID>` — remove a childless item's file.
+- `syngate query <UID>` — print the item as the AI reads it back: header, description, parents, children
+  in sibling order and kind, as JSON.
+- `syngate context <UID>` — print the seed context an AI exchange anchored at the item is formed from.
 - `syngate test <UID…> [--build-dir DIR] [--coverage-out FILE]` — run the routines bound to leaf
   items (literals or glob patterns) without stamping: pytest routines by node id in one process,
   Catch2 cases by an OR of their tag pairs in one run per test binary. With `--coverage-out` the
@@ -182,8 +185,8 @@ is their genuine spelling rather than a second implementation.
 - `syngate ui [--port N] [--coverage FILE …] [--build-dir DIR] [--no-browser]` — serve the local tree
   editor (`syngate_ui.py` + `syngate_ui.html`, stdlib-only) at `http://127.0.0.1:8712`; `--port 0`
   picks an ephemeral port and the URL line is flushed for hosts reading it from a pipe.
-  - **The outline tree carries every structured field of an item**: rollup status, UID, problem /
-    review / leaf badges, the header (edited in place, F2) and — by the row's position — `parents`
+  - **The outline tree carries every structured field of an item**: the status icon (a square
+    filled by the test status wrapping the review eyes), UID, the header (edited in place, F2) and — by the row's position — `parents`
     and `order`. It doubles as the TOC of the document on the right. A childless row's `T` opens
     the bindings popover (the `test` key, its binding names, the recorded runs). A feature the root
     item keeps off has no affordances on the page: no test axis or `T` without test, no review
@@ -235,29 +238,69 @@ is their genuine spelling rather than a second implementation.
 The dialog runs inside the DAG (`synthetic.py`). `✦ AI chat` on an item's panel opens an exchange
 anchored at that item; every replica is one non-interactive turn of the chosen connector:
 
-- **Context.** The seed context — the ancestry chain of the anchor, root first, then the anchor's
-  own statement — is the system prompt of the turn; the user's text is the prompt. Nothing else of
-  the conversation travels except the connector's own session, which the next replica resumes. The
-  Claude Code connector runs the local `claude` CLI with the call modes (edit, internet, workflows)
-  as its permission mode and allowed tools; its models and efforts are the ones the page offers.
+- **Context.** The seed context — the default prompt of the prompt library, then the ancestry
+  chain of the anchor, root first, then the anchor's own statement — is the system prompt of the
+  turn; the user's text is the prompt, and every `@UID` it names brings that item's statement
+  into the context as one more section. Nothing else of the conversation travels except the
+  connector's own session, which the next replica resumes; a turn without a session (a message
+  was dropped from or restored to the exchange) carries the kept messages as a transcript heading
+  the text. The Claude Code connector runs the local
+  `claude` CLI with the call modes (edit, internet, workflows) as its permission mode and allowed
+  tools; its models and efforts are the ones the page offers.
+- **Prompt library.** The markdown files under the package's `prompts/` folder, by file stem
+  (`synthetic.PROMPTS`). `default.md` — deliberately not a `CLAUDE.md` — carries the tree call
+  protocol below and heads every seed context; `seed_context(items, uid, prompt=…)` picks another
+  by name.
+- **Several chats at once.** Every item has its own chat window, and any number are open at the
+  same time, each running its own exchange in parallel with the others. A chat keeps its history
+  and its connector session while closed, and reopening `✦ AI chat` on that item continues it; the
+  histories survive a reload of the page (per browser tab).
 - **Two kinds of reply, never mixed.** A reply is **either** plain text — the dialog goes on — **or**
-  exactly one fenced ```` ```syngate ```` block holding a JSON list of tree calls — the dialog is
-  condensed into the DAG — and nothing else. A reply that carries both, or a malformed call, is
-  refused by the harness (HTTP 422, shown as an error in the chat; the session is kept, so the next
-  replica can ask for a clean answer). The protocol every connector appends to its system prompt is
-  `synthetic.TREE_CALLS`.
+  exactly one list of Syngate API calls — the dialog is condensed into the DAG — and nothing else.
+  The Syngate API tools are handed to the turn as the JSON schema of its structured answer
+  (`synthetic.ANSWER_SCHEMA`: `{"kind": "text", "text"}` or `{"kind": "calls", "calls": [...]}`; the
+  Claude Code connector passes it as `--json-schema` and reads the turn's `structured_output`); a
+  connector without structured output carries the same list in one fenced ```` ```syngate ```` block.
+  A reply that carries both, or a malformed call, is refused by the harness (HTTP 422, shown as an
+  error in the chat; the session is kept, so the next replica can ask for a clean answer). The
+  protocol every connector appends to its system prompt is `synthetic.TREE_CALLS`.
 - **Tree calls are the only way the agent touches the DAG.** The files under `syngate/` are never
   edited by the model — the Claude Code connector denies `Edit`/`Write` under `syngate/**` in every
   mode. `"@"` stands for the anchored item, every other item is addressed by its UID:
   `{"tool": "add", "uid", "parent" (default "@"), "header", "description", "kind": "leaf"|"branch"}`
   adds a statement under its parent, last among the siblings, in the folder of its last sibling
-  (else the parent's); `{"tool": "remove", "uid"}` drops a childless statement;
+  (else the parent's); `{"tool": "edit", "uid", "header", "description"}` changes one;
+  `{"tool": "remove", "uid"}` drops a childless statement;
   `{"tool": "move", "uid", "to", "before" (default last), "from"}` re-points the parent link and
   places the item, `from` naming the link when the item has several parents.
+- **Queries read the DAG back the same way.** `{"tool": "query", "uid"}` returns the item's header,
+  description, parents, children in sibling order and kind; `{"tool": "context", "uid"}` returns
+  its seed context. The harness sends what a batch read back into the same session as the next
+  prompt and continues the exchange with the next answer, for a bounded number of rounds
+  (`synthetic.QUERY_ROUNDS`), so the agent can look at an item's children before placing new ones.
+- **Test runs go through the page's runner.** `{"tool": "test", "uid", "name"}` runs the routines bound
+  to the leaves under the item — every `test` call of a batch joins one run, after the batch's other
+  calls, and `name` narrows a leaf to one binding (the CLI spelling `syngate test UID:binding`). It is
+  the same single-flight runner as ▶ run: the records land in the run coverage, the statuses recolor,
+  and a run live elsewhere refuses the call. The harness awaits the run and hands its outcome back
+  like a query's result — one line per leaf binding with pass/fail, then the output of every failed
+  routine. Review stamping stays the user's act: there is no review call.
+- **A turn lasts as long as its subagents.** The headless `claude` CLI awaits every subagent and
+  workflow a turn launches and answers again on their reports, so the process exits only then and
+  the turn's answer is the last one given (a shell command left in the background, by contrast, is
+  killed when the turn ends). The harness therefore runs every turn as a server-side job
+  (`POST /api/turn` starts it, `GET /api/turn/<id>?wait=<s>` awaits it; `POST /api/chat` is the same
+  exchange awaited in one request): the page polls it and re-attaches to it after a reload, and while
+  it runs the chat's close mark is a `■ stop` button (`POST /api/turn/<id>/stop`) that kills the
+  connector's process — the calls applied before the stop stay applied, and the chat shows the turn
+  as stopped.
 - **Applied through the editor's own mutations.** The harness runs the calls in order through
-  `create_item`, `delete_item` and `move_item`, stops at the first refused one and shows the applied
-  list in the history; the DAG re-renders through the fingerprint poll, and the user reviews the
-  result exactly as any other edit.
+  `add_item`, `edit_item`, `delete_item` and `move_item`, stops at the first refused one and shows
+  the applied list in the history; the DAG re-renders through the fingerprint poll, and the user
+  reviews the result exactly as any other edit.
+
+The chat's place in the item panel, its ways of starting, the message tools and the history are
+specified in [AI_CHAT.md](AI_CHAT.md).
 
 # Status Rollup
 

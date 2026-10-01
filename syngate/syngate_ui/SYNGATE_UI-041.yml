@@ -1,11 +1,18 @@
-header: Common status label
+header: Single composite status icon
 description: |
-  Every place that shows an item shall label it with the summarized test status dot (gray, green or red), the ID and the review mark (green check, red cross, omitted while not reviewed), in this order.
-  The status dot color
-  - Gray - no tests and not reviewed
-  - Green - tests passed and reviewed
-  - Red - tests failed or review violated
+  Every place that shows an item shall label it with one composite status icon followed by the ID.
+
+  The icon is a single element: a circle whose fill color carries the test status, with the review glyph rendered over it. The circle's diameter is about 1.4x the glyph font size plus 2px; the eyes are shifted toward the circle's right edge so they still mostly overlap it.
+
+  Test status (circle fill):
+  - Green - tests passed
+  - Red - tests failed
+  - Grey - test status unknown
+
+  Review status (glyph over the circle):
+  - Stamp ok - the eyes glyph 👀 (U+1F440)
+  - Stamp violated - the same eyes glyph with the red exclamation glyph ❗ (U+2757, no circle) laid over the eyes' right part via CSS, outside of the circle and as tall as the circle
+  - No stamp - the circle stays empty (no glyph)
 parents: [SYNGATE_UI-040]
 order: 10
-test: bf1831af81757307757d2ce17d673ffaa1ac6d0e8bd6ff7a0be2f7c9a02b7a78
-review: fd8962b0e18fb99a72f0b7e1f9ebe150a400e6f6ef3bbaec95f370f802604ce7
+test: ~

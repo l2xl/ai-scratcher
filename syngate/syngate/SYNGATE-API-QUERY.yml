@@ -1,0 +1,6 @@
+header: Query node
+description: |
+  The syngate query call shall return an item's header, description, parents, children in sibling order and kind.
+parents: [SYNGATE-API]
+order: 60
+test: ~

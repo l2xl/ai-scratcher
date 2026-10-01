@@ -13,7 +13,7 @@ UID is the file stem; folders carry no semantics. Item schema:
     parents: [UID, ...]        # DAG edges; exactly one item in the tree has none
     order: 10                  # optional presentation-only sibling sort key
     test: ~ | <sha> | {name: sha|~, ...}   # test bindings; absent on items without own tests
-    review: <sha256 hex>       # user-only approval stamp, or absent
+    review: <sha256 hex>       # user-only approval stamp, or absent; a malformed stamp reads as absent
 
 The old spellings `tests` / `reviewed` are read as the same keys. On the root
 item (empty parents) `test: enabled|disabled` and `review: enabled|disabled`
@@ -158,12 +158,9 @@ def _parse_sha(sha, errors, uid):
 
 
 def _parse_stamp(value, errors, uid):
-    if value is None:
-        return None
-    if not isinstance(value, str) or not SHA_RE.match(value):
-        errors.append(f"{uid}: 'review' must be a sha256 hex stamp")
-        return None
-    return value
+    if isinstance(value, str) and SHA_RE.match(value):
+        return value
+    return None
 
 
 def _keyed(data, key, legacy, errors, uid):

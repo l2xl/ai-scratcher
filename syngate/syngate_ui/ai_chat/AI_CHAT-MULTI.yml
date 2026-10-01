@@ -1,0 +1,5 @@
+header: Per chat history
+description: |
+  AI Scratcher should keep every started chat history and reopen it when exact syngate item activated
+parents: [AI_CHAT-001]
+test: ~

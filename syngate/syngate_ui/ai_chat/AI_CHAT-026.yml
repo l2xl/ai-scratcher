@@ -1,0 +1,6 @@
+header: Message tools
+description: |
+  Every reply but the first shall carry at its left edge, level with its first line, a collapse/expand button and a check mark on by default; switched off, the message is dropped from the exchange temporarily and its text greyed.
+parents: [AI_CHAT]
+order: 105
+test: ~

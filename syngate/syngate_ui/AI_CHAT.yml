@@ -1,7 +1,6 @@
-header: AI chat window
+header: AI chat in the item panel
 description: |
-  The tree UI shall open an AI chat window under the selected tree item. The window should have selectors for AI-connector, model selection and effort. Also send button.
-parents: [SYNGATE_UI-030]
+  The AI chat shall be a part of the item's content panel, the item's description being the first message of the exchange and shown once as the content itself; the chat offers selectors for AI connector, model and effort, and a send button. Details: [AI_CHAT.md](AI_CHAT.md).
+parents: [SYNGATE_UI-030, SYNGATE_UI-043]
 order: 70
-test: bd05398a433087753cb1ed55c67205e9e1b3d86a8b41f4f369a7b75ea52d89ca
-review: 0e053b2161fb4b18edcdaf172e676c2d7f74be62345332c36f6cd46063c1ac88
+test: ~

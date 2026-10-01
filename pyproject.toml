@@ -18,7 +18,7 @@ syngate = "ai_scratcher.syngate:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ai_scratcher = ["syngate_ui.html"]
+ai_scratcher = ["syngate_ui.html", "prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

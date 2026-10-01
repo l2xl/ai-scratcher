@@ -7,6 +7,8 @@
 
 add / edit / move / delete are the tree mutations, each one line over the core
 call in syngatelib; the editor and the AI wrapper reach those same functions.
+`query` and `context` read an item back the way the AI does: its fields and
+children, and the seed context an AI call anchored at it is formed from.
 `review` and `clear` are user-only: the reviewed stamp is the record of the
 user's approval. `test` runs the routines bound to items without stamping.
 `validate` is the CI gate entry point; `report` computes the recursive status
@@ -22,7 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import syngatelib
+from . import syngatelib, synthetic
 
 
 def _load_or_die():
@@ -78,6 +80,14 @@ def cmd_delete(args):
     def run(items):
         return f"deleted {syngatelib.delete_item(items, args.uid, clear=args.clear_review).relative_to(syngatelib.ROOT)}"
     return _mutate(run)
+
+
+def cmd_query(args):
+    return _mutate(lambda items: json.dumps(synthetic.item_view(items, args.uid), ensure_ascii=False, indent=1))
+
+
+def cmd_context(args):
+    return _mutate(lambda items: synthetic.seed_context(items, args.uid).rstrip("\n"))
 
 
 def _require(items, feature):
@@ -257,7 +267,16 @@ def cmd_test(args):
     run and still record coverage. Stamping is `review`'s and stays gated."""
     items = _load_or_die()
     tests_on = syngatelib.features(items)["test"]
-    uids, errors = _expand_uids(items, args.uid, _addressable(items), "leaf")
+    narrowed, errors = {}, []
+    for arg in args.uid:
+        pattern, _, name = arg.partition(":")
+        matched, bad = _expand_uids(items, [pattern], _addressable(items), "leaf")
+        errors += bad
+        for uid in matched:
+            narrowed.setdefault(uid, [])
+            if name:
+                narrowed[uid].append(name)
+    uids = list(narrowed)
     discovered = syngatelib.discover_bindings()
     resolved, unresolved = {}, {}
     for uid in uids:
@@ -266,6 +285,11 @@ def cmd_test(args):
             errors.append(f"unknown UID '{uid}'")
             continue
         names = _bindings_of(item, discovered, tests_on)
+        unknown = [name for name in narrowed[uid] if name not in names]
+        if unknown:
+            errors.append(f"{uid}: no binding named {', '.join(unknown)}")
+            continue
+        names = narrowed[uid] or names
         if not names:
             # With the switch off the tree never claimed the item has a test, so
             # having none is nothing to report; with it on, it binds none by mistake.
@@ -401,6 +425,12 @@ def main():
 
     p = mutation("delete", "remove a childless item")
     p.set_defaults(func=cmd_delete)
+
+    for name, help, func in (("query", "print an item as JSON: header, description, parents, children and kind", cmd_query),
+                             ("context", "print the seed AI-context of an item as an AI call anchored at it is formed", cmd_context)):
+        p = sub.add_parser(name, help=help)
+        p.add_argument("uid")
+        p.set_defaults(func=func)
 
     p = sub.add_parser("review", help="user-only: run bound tests, stamp routine shas + reviewed (stamps even on a failing test -- TDD red state)")
     p.add_argument("uid", nargs="+", help="UID(s) or glob pattern(s) like 'BUOY-00?' / 'BUOY-*' (quote patterns for the shell); patterns select leaves only")

@@ -1,0 +1,6 @@
+header: Proxied reads and runs
+description: |
+  The results of the query, context and test calls in an applied answer shall be sent back into the same session as the next prompt, the exchange continuing until an answer carries no read and no run.
+parents: [SYNTHETIC-020]
+order: 10
+test: ~

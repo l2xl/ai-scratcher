@@ -145,12 +145,14 @@ def test_leaf_description_wording_is_unconstrained(syngate_tree):
     assert errors == []
 
 
-def test_reviewed_must_be_sha256_hex(syngate_tree):
+@pytest.mark.syngate("INFRA-071")
+def test_malformed_reviewed_stamp_reads_as_absent(syngate_tree):
     syngate_dir, make_item = syngate_tree
     _seed_minimal(syngate_dir, make_item)
     make_item(syngate_dir, "ROOT-1", "the product shall exist", header="root", reviewed="not-a-sha")
-    _items, load_errors, _errs = _errors(syngate_dir)
-    assert _matching(load_errors, "must be a sha256 hex stamp")
+    items, load_errors, _errs = _errors(syngate_dir)
+    assert not _matching(load_errors, "review")
+    assert items["ROOT-1"].reviewed is None
 
 
 def test_reviewed_stamp_must_match_computed_content(syngate_tree):

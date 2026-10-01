@@ -1,0 +1,6 @@
+header: Edit then reply
+description: |
+  Clicking the reply field right after an edit shall save the item and wait for one more message before anything is sent to the AI.
+parents: [AI_CHAT]
+order: 80
+test: ~

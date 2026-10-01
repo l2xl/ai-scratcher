@@ -1,0 +1,6 @@
+header: Message styles
+description: |
+  User messages shall be styled as the description text; AI replies shall be aligned right and highlighted.
+parents: [AI_CHAT]
+order: 90
+test: ~

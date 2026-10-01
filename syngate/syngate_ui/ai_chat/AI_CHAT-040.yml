@@ -2,6 +2,6 @@ header: Tree calls applied
 description: |
   A tree call answer shall be applied to the tree through the item scaffold, delete and placement capabilities — `@` standing for the anchored item — with the history showing the applied calls and stopping at the first refused one.
 parents: [AI_CHAT]
-order: 40
+order: 110
 test: d2ca3a97f73253e25690fafd0f9cbfb55f0e44e1d8e245774e98bd002722ff9b
 review: 83d46d11a2ab9e5f28bc231554728a2f32c3a477d3e8236aadd83d897cb024d5

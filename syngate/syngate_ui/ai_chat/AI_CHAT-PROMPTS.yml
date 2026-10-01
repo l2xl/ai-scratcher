@@ -1,0 +1,6 @@
+header: Prompt library
+description: |
+  Provide prompt library and add appropriate prompt to context automatically
+parents: [SYNTHETIC]
+order: 40
+test: ~

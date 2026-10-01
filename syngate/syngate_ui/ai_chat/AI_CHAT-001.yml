@@ -1,0 +1,6 @@
+header: AI multi chat
+description: |
+  AI Scratcher must support several AI chat windows opened simulateneously.
+parents: [AI_CHAT]
+order: 10
+test: ~

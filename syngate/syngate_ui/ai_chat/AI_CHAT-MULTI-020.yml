@@ -1,0 +1,6 @@
+header: Multi AI-sessions
+description: |
+  Support parallel AI sessions within simulateneously opened chat windows linked to different items
+parents: [AI_CHAT-001]
+order: 10
+test: ~

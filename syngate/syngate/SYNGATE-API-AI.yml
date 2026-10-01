@@ -1,8 +1,9 @@
 header: Syngate API  AI harness
 description: |
   Structured AI answer is parsed for requested syngate API calls and then proxied transparently.
-  1. Answer format: the whole answer is either plain text or exactly one fenced block tagged `syngate` holding a JSON list of calls, and nothing else. Each call is an object with `tool` — `add` (`uid`, `parent`, `header`, `description`, `kind` leaf|branch), `edit` (`uid`, `header` and/or `description`), `remove` (`uid`), `move` (`uid`, `to`, `before`, `from`, `link`) — where `@` stands for the anchored item and any other item is addressed by its UID. The calls are applied in order through the syngate API; the first refused call stops the batch, and the applied part is reported with the refusal.
-  2. In the cases user made UI changes to syngate items clears the review, AI initiated changes makes the review violated in order to highlight the change
+  1. Answer format: the whole answer is either plain text or exactly one list of calls and nothing else — the structured object `{"kind": "calls", "calls": [...]}`, or one fenced block tagged `syngate` holding the JSON list. Each call is an object with `tool`: the writes `add` (`uid`, `parent`, `header`, `description`, `kind` leaf|branch), `edit` (`uid`, `header` and/or `description`), `remove` (`uid`), `move` (`uid`, `to`, `before`, `from`, `link`); the reads `query` (`uid`) and `context` (`uid`); the run `test` (`uid`, `name`). `@` stands for the anchored item and any other item is addressed by its UID. The calls are applied in order through the syngate API; the first refused call stops the batch, and the applied part is reported with the refusal.
+  2. What a read or a run produced is not the AI's answer but its next prompt: the harness places the results into the same session as the next message and the exchange goes on with the next answer, for a bounded number of rounds.
+  3. In the cases user made UI changes to syngate items clears the review, AI initiated changes makes the review violated in order to highlight the change.
 parents: [SYNTHETIC-020]
 order: -10
 test: ed07a67c41888d305e53bd201253fa053ab028719c18cf65171a75709a92830c

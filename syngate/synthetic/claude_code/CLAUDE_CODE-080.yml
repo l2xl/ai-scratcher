@@ -1,0 +1,6 @@
+header: Interrupted turn
+description: |
+  The Claude Code connector shall end a turn on request by killing the `claude` process of the thread running it, the dispatch then failing as a connection error.
+parents: [CLAUDE_CODE]
+order: 80
+test: ~

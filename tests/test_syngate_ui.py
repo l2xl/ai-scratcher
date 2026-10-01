@@ -27,6 +27,7 @@ import yaml
 
 import syngate_ui
 import syngatelib
+import synthetic
 
 # Stub CLI: echoes its argv tail and exits with the code named by an rc=N
 # argument (charset-valid as a UID pattern), standing in for `syngate.py review/clear` runs.
@@ -397,16 +398,16 @@ def test_the_page_renders_every_tree_item_from_the_served_model(page):
 
 
 @pytest.mark.syngate("SYNGATE_UI-031", "rows")
-def test_a_row_carries_uid_editable_header_and_the_review_badge(page, syngate_tree):
+def test_a_row_carries_uid_editable_header_and_the_review_mark(page, syngate_tree):
     syngate_dir, _ = syngate_tree
     frozen = syngatelib.Item(uid="LEAF-002", path=syngate_dir / "LEAF-002.yml", header="Frozen", description="It shall freeze.\n", parents=["ROOT"], tests={None: "a" * 64})
     frozen.reviewed = syngatelib.compute_stamp(frozen)
     syngatelib.write_item(frozen)
     page.wait("document.querySelector('#tree [data-uid=\"LEAF-002\"]')")  # picked up by the fingerprint poll
     row = "(() => { const row = document.querySelector('#tree [data-uid=\"%s\"]'), title = row.querySelector('.title');" \
-          " return [row.querySelector('.node-uid').textContent, title.value, title.readOnly, [...row.querySelectorAll('.badge')].map((el) => el.textContent)]; })()"
-    assert page.eval(row % "LEAF-001") == ["LEAF-001", "First leaf", False, []]
-    assert page.eval(row % "LEAF-002") == ["LEAF-002", "Frozen", False, ["✗"]]  # reviewed, but its stamped routine is gone
+          " return [row.querySelector('.node-uid').textContent, title.value, title.readOnly, row.querySelector('.status').className]; })()"
+    assert page.eval(row % "LEAF-001") == ["LEAF-001", "First leaf", False, "status gray not_reviewed"]
+    assert page.eval(row % "LEAF-002") == ["LEAF-002", "Frozen", False, "status gray review_violated"]  # reviewed, but its stamped routine is gone
     page.eval("(() => { select('LEAF-002', 'ROOT/LEAF-002'); startEditing('ROOT/LEAF-002'); })()")
     assert page.eval("(() => { const block = document.querySelector('#doc .block.editing'); return [block.querySelector('textarea').readOnly, Boolean(block.querySelector('.block-problems'))]; })()") == [False, False]
 
@@ -423,12 +424,12 @@ def violated_page(page, syngate_tree):
     return page
 
 
-LABEL = "(() => { const el = document.querySelector('%s'), dot = el.querySelector('.dot');" \
-        " return [dot.className, dot.nextElementSibling.textContent, [...el.querySelectorAll('.badge')].map((b) => [b.className, b.textContent])]; })()"
+LABEL = "(() => { const el = document.querySelector('%s'), mark = el.querySelector('.status');" \
+        " return [mark.className, mark.nextElementSibling.textContent, [...mark.children].map((c) => c.className + ':' + c.textContent)]; })()"
 
 
 @pytest.mark.syngate("SYNGATE_UI-041")
-def test_row_and_panel_label_an_item_by_status_dot_id_and_review_mark(violated_page, server, syngate_tree):
+def test_row_and_panel_label_an_item_by_one_status_icon_and_id(violated_page, server, syngate_tree):
     page, (_, app), (syngate_dir, _) = violated_page, server, syngate_tree
     routines = app.root / "scripts" / "tests"
     routines.mkdir(parents=True)
@@ -440,39 +441,59 @@ def test_row_and_panel_label_an_item_by_status_dot_id_and_review_mark(violated_p
     for uid in ("LEAF-001", "LEAF-003"):
         with open(app.run_coverage, "a") as coverage:
             coverage.write(json.dumps({"tags": [uid], "passed": True, "name": "", "log": ""}) + "\n")
-    page.wait("document.querySelector('#tree [data-uid=\"LEAF-003\"] .dot.green')")
+    page.wait("document.querySelector('#tree [data-uid=\"LEAF-003\"] .status.green')")
     for place in ("#tree [data-uid=\"%s\"]", "#doc .block[data-uid=\"%s\"] legend"):
-        assert page.eval(LABEL % (place % "LEAF-002")) == ["dot red", "LEAF-002", [["badge problem", "✗"]]]  # review violated
-        assert page.eval(LABEL % (place % "LEAF-001")) == ["dot gray", "LEAF-001", []]  # passed but not reviewed: no mark, not green
-        assert page.eval(LABEL % (place % "LEAF-003")) == ["dot green", "LEAF-003", [["badge fresh", "✓"]]]  # passed and reviewed
-    assert page.eval("document.querySelector('#tree [data-uid=\"LEAF-001\"] .dot').title") == "test passed · not reviewed"
+        assert page.eval(LABEL % (place % "LEAF-002")) == ["status gray review_violated", "LEAF-002", ["eyes:👀", "seal:❗"]]  # test unknown, review violated
+        assert page.eval(LABEL % (place % "LEAF-001")) == ["status green not_reviewed", "LEAF-001", []]  # passed but not reviewed: empty square
+        assert page.eval(LABEL % (place % "LEAF-003")) == ["status green reviewed", "LEAF-003", ["eyes:👀"]]  # passed and reviewed
+    assert page.eval("document.querySelector('#tree [data-uid=\"LEAF-001\"] .status').title") == "test passed · not reviewed"
 
 
 @pytest.mark.syngate("SYNGATE_UI-042")
-def test_a_tree_row_shows_collapse_mark_label_title_and_menu_only(violated_page):
+def test_a_tree_row_shows_collapse_mark_label_title_and_menu_only_and_activates_its_panel_on_double_click(violated_page):
     page = violated_page
-    parts = "[...document.querySelector('#tree [data-uid=\"LEAF-002\"]').querySelectorAll('.twist, .dot, .node-uid, .badge, .dupmark, .title, .tools button:not([hidden])')]" \
+    parts = "[...document.querySelector('#tree [data-uid=\"LEAF-002\"]').querySelectorAll('.twist, .status, .node-uid, .dupmark, .title, .tools button:not([hidden])')]" \
             ".map((el) => el.dataset.act || el.className.split(' ')[0])"
-    assert page.eval(parts) == ["twist", "dot", "node-uid", "badge", "title", "tests", "menu"]
+    assert page.eval(parts) == ["twist", "status", "node-uid", "title", "tests", "menu"]
     assert page.eval("Boolean(document.querySelector('#tree .row-problems'))") is False
     page.eval("document.querySelector('#tree [data-uid=\"LEAF-002\"] [data-act=\"menu\"]').click()")
     entries = "[document.getElementById('status-menu').matches(':popover-open'), [...document.querySelectorAll('#status-menu [data-row-act]')].map((el) => el.dataset.rowAct)]"
-    assert page.eval(entries) == [True, ["add", "delete"]]  # structure edits only behind the explicit menu
+    assert page.eval(entries) == [True, ["add-parent", "add", "remove"]]  # structure edits only behind the explicit menu
     page.eval("document.querySelector('#tree [data-uid=\"ROOT\"] [data-act=\"menu\"]').click()")
-    assert page.eval(entries) == [True, ["add"]]  # an item with children cannot be deleted
+    assert page.eval(entries) == [True, ["add"]]  # the root has no parent to add and an item with children cannot be removed
     page.eval("document.querySelector('#status-menu [data-row-act=\"add\"]').click()")
     assert page.eval("Boolean(document.querySelector('#tree .row.adding .new-uid'))")
+    page.eval("document.querySelector('#tree [data-uid=\"LEAF-001\"] [data-act=\"menu\"]').click()")
+    page.eval("document.querySelector('#status-menu [data-row-act=\"add-parent\"]').click()")
+    search = "(() => { const rows = [...document.querySelectorAll('#tree .row')], i = rows.findIndex((r) => r.dataset.uid === 'LEAF-001');" \
+             " return [rows[i + 1].classList.contains('adding'), [...rows[i + 1].querySelectorAll('datalist option')].map((o) => o.value)]; })()"
+    assert page.eval(search) == [True, ["LEAF-002"]]  # the search row sits right under the item and offers the items it may hang from
+    page.eval("(() => { const input = document.querySelector('#tree .row.adding .new-uid'); input.value = 'LEAF-002'; input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()")
+    page.wait("state.model.items['LEAF-001'].parents.length === 2")
+    assert page.eval("[state.model.items['LEAF-001'].parents, state.model.items['LEAF-002'].children]") == [["ROOT", "LEAF-002"], ["LEAF-001"]]  # linked, the old parent kept
+    page.eval("document.querySelector('#tree [data-uid=\"LEAF-001\"] [data-act=\"menu\"]').click()")
+    assert page.eval("document.querySelector('#status-menu [data-row-act=\"remove\"]').textContent") == "⊖ Remove from ROOT"
+    page.eval("document.getElementById('status-menu').hidePopover()")
+    page.eval("window.scrolled = []; Element.prototype.scrollIntoView = function () { window.scrolled.push(this.className.split(' ')[0]); }")
+    page.eval("document.querySelector('#tree [data-uid=\"LEAF-001\"] .cell-title').click()")
+    selection = "[state.selected, document.querySelector('#tree .row.selected').dataset.uid, [...document.querySelectorAll('#doc .block.selected')].map((b) => b.dataset.uid), window.scrolled.includes('block')]"
+    assert page.eval(selection) == ["LEAF-001", "LEAF-001", [], False]  # a click selects the row only: no panel activated, none scrolled to
+    dblclick = "document.querySelector('#tree [data-uid=\"%s\"] .cell-title').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))"
+    page.eval(dblclick % "LEAF-001")
+    assert page.eval("[state.selected, document.querySelector('#doc .block.selected').dataset.uid, window.scrolled.includes('block')]") == ["LEAF-001", "LEAF-001", False]  # the panel is in view: activated, not scrolled
+    page.eval("document.getElementById('doc-pane').style.height = '40px'; window.scrolled = []")
+    page.eval(dblclick % "LEAF-002")
+    assert page.eval("[state.selected, window.scrolled.includes('block')]") == ["LEAF-002", True]  # the panel is out of view: scrolled to
 
 
 @pytest.mark.syngate("SYNGATE_UI-043")
-def test_a_content_panel_shows_label_status_button_with_popup_and_ai_chat_button(violated_page):
+def test_a_content_panel_shows_label_without_title_and_status_button_with_popup(violated_page):
     page = violated_page
-    label = "(() => { const tag = document.querySelector('#doc .block[data-uid=\"LEAF-002\"] legend .tag'); return [tag.querySelector('.caption').textContent, tag.querySelectorAll('button').length]; })()"
-    assert page.eval(label) == ["Frozen", 0]
+    label = "(() => { const tag = document.querySelector('#doc .block[data-uid=\"LEAF-002\"] legend .tag'); return [[...tag.children].filter((e) => !e.classList.contains('status')).map((e) => e.textContent).join(''), tag.querySelectorAll('button').length]; })()"
+    assert page.eval(label) == ["LEAF-002", 0]
     foot = "(() => { const foot = document.querySelector('#doc .block[data-uid=\"LEAF-002\"] .block-foot'), box = foot.getBoundingClientRect()," \
-           " ai = foot.querySelector('.block-ai .chat-open').getBoundingClientRect(), pill = foot.querySelector('.block-status .pill').getBoundingClientRect();" \
-           " return [ai.left - box.left < 2, box.right - pill.right < 2]; })()"
-    assert page.eval(foot) == [True, True]
+           " pill = foot.querySelector('.block-status .pill').getBoundingClientRect(); return box.right - pill.right < 2; })()"
+    assert page.eval(foot) is True
     tip = "[...document.querySelectorAll('#doc .block[data-uid=\"LEAF-002\"] .block-status .tip > div')].map((el) => [el.className, el.textContent])"
     lines = page.eval(tip)
     assert lines[0] == ["tip-unknown", "unknown"] and lines[1][0] == "tip-unknown" and "no tagged routine yet" in lines[1][1]
@@ -491,20 +512,139 @@ class EchoConnector:
                 "modes": [{"id": mode, "label": mode.capitalize(), "hint": mode + " hint", "default": default} for mode, default in self.modes.items()]}
 
     def dispatch(self, context, text, model=None, effort=None, modes=(), session=None):
-        return f"{context}|{text}|{model}|{effort}|{','.join(modes)}|{session}", "session-1"
+        return {"kind": "text", "text": f"{context}|{text}|{model}|{effort}|{','.join(modes)}|{session}"}, "session-1"
 
 
 SETUP = "document.querySelector('.chat-setup').textContent"
 
 
-def open_chat(server, chrome, **connectors):
+def item_page(server, chrome, **connectors):
     base, app = server
     app.connectors = connectors or {"echo": EchoConnector()}
     page = Page(chrome, f"{base}/?token={app.token}")
     page.wait("document.querySelector('#tree [data-uid=\"LEAF-001\"]')")
     page.wait("document.querySelector('#doc .block[data-uid=\"LEAF-001\"] .chat-open')")
+    return page
+
+
+def open_chat(server, chrome, **connectors):
+    page = item_page(server, chrome, **connectors)
     page.eval("document.querySelector('#doc .block[data-uid=\"LEAF-001\"] .chat-open').click()")
     return page
+
+
+def edit_leaf(page, text):
+    page.eval("(() => { select('LEAF-001', 'ROOT/LEAF-001'); startEditing('ROOT/LEAF-001'); })()")
+    page.eval(f"(() => {{ const text = document.querySelector('#doc .block.editing textarea'); text.value = '{text}'; text.dispatchEvent(new Event('input', {{ bubbles: true }})); }})()")
+
+
+LEAF_BLOCK = "document.querySelector('#doc .block[data-uid=\"LEAF-001\"]')"
+
+
+def tree_item(server, uid):
+    base, app = server
+    return call(base, app, "/api/tree")[1]["items"][uid]
+
+
+@pytest.mark.syngate("AI_CHAT-022")
+def test_editing_the_description_offers_the_ai_controls_and_sends_the_saved_statement(server, chrome):
+    page = item_page(server, chrome)
+    edit_leaf(page, "It shall leaf better.")
+    controls = f"[...{LEAF_BLOCK}.querySelectorAll('.block-ai .chat-send, .block-ai .chat-setup, .block-ai .chat-mode')].length"
+    assert page.eval(controls) == 5  # send, setup and the three mode switches, before anything is sent
+    pick(page, "model", "model-b")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.block-ai .chat-send').click()")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    assert tree_item(server, "LEAF-001")["description_raw"].strip() == "It shall leaf better."
+    assert page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai').textContent").endswith("It shall leaf better.|It shall leaf better.|model-b|low|edit,internet|None")
+    assert page.eval(f"{LEAF_BLOCK}.querySelectorAll('.chat-msg.user').length") == 0  # the first message is the content itself
+
+
+@pytest.mark.syngate("AI_CHAT-022", "ctrl_enter")
+def test_ctrl_enter_in_the_editor_sends_the_edited_description(server, chrome):
+    page = item_page(server, chrome)
+    edit_leaf(page, "It shall leaf by keyboard.")
+    page.eval("document.querySelector('#doc .block.editing textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    assert page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai').textContent").endswith("|It shall leaf by keyboard.|model-a|low|edit,internet|None")
+
+
+@pytest.mark.syngate("AI_CHAT-023")
+def test_the_tool_button_on_a_selected_item_starts_the_chat_without_changing_the_item(server, chrome):
+    page = open_chat(server, chrome)
+    assert page.eval(f"[Boolean({LEAF_BLOCK}.querySelector('.chat-input')), {LEAF_BLOCK}.classList.contains('editing')]") == [True, False]
+    send(page, "LEAF-001", "Just asking")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    assert tree_item(server, "LEAF-001")["description_raw"] == "It shall leaf.\n"
+
+
+@pytest.mark.syngate("AI_CHAT-024")
+def test_clicking_the_reply_field_after_an_edit_saves_the_item_and_waits_for_a_message(server, chrome):
+    page = item_page(server, chrome)
+    edit_leaf(page, "It shall leaf, saved by the reply field.")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.chat-input').click()")
+    page.wait(f"!{LEAF_BLOCK}.classList.contains('editing')")
+    assert tree_item(server, "LEAF-001")["description_raw"].strip() == "It shall leaf, saved by the reply field."
+    assert page.eval(f"[document.activeElement === {LEAF_BLOCK}.querySelector('.chat-input'), {LEAF_BLOCK}.querySelectorAll('.chat-msg').length]") == [True, 0]
+    send(page, "LEAF-001", "Now ask")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    assert page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai').textContent").endswith("|Now ask|model-a|low|edit,internet|None")
+
+
+@pytest.mark.syngate("AI_CHAT-025")
+def test_user_messages_look_like_the_description_and_ai_replies_sit_right_highlighted(server, chrome):
+    page = open_chat(server, chrome)
+    send(page, "LEAF-001", "Styled?")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    look = f"(() => {{ const body = {LEAF_BLOCK}.querySelector('.block-body .block-text'), user = {LEAF_BLOCK}.querySelector('.chat-msg.user'), ai = {LEAF_BLOCK}.querySelector('.chat-msg.ai');" \
+           " const css = (el) => getComputedStyle(el); return [css(user).backgroundColor === css(body).backgroundColor, css(user).alignSelf, css(ai).alignSelf, css(ai).backgroundColor !== css(body).backgroundColor]; })()"
+    assert page.eval(look) == [True, "flex-start", "flex-end", True]
+
+
+@pytest.mark.syngate("AI_CHAT-026")
+def test_every_reply_carries_fold_and_keep_tools_at_its_left_edge(server, chrome):
+    page = open_chat(server, chrome)
+    send(page, "LEAF-001", "First")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    tools = f"[...{LEAF_BLOCK}.querySelectorAll('.chat-msg')].map((el) => [Boolean(el.querySelector('.msg-fold')), Boolean(el.querySelector('.msg-keep')), el.querySelector('.msg-keep')?.getAttribute('aria-checked')])"
+    assert page.eval(tools) == [[True, True, "true"], [True, True, "true"]]
+    place = f"(() => {{ const msg = {LEAF_BLOCK}.querySelector('.chat-msg.ai'), tools = msg.querySelector('.msg-tools').getBoundingClientRect(), box = msg.getBoundingClientRect();" \
+            " return [tools.left - box.left < 4, Math.abs(tools.top - box.top) < parseFloat(getComputedStyle(msg).lineHeight)]; })()"
+    assert page.eval(place) == [True, True]
+    page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai .msg-fold').click()")
+    assert page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai .msg-fold').getAttribute('aria-expanded')") == "false"
+    assert page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai').getBoundingClientRect().height <= 2 * parseFloat(getComputedStyle({LEAF_BLOCK}.querySelector('.chat-msg.ai')).lineHeight)")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai .msg-keep').click()")
+    gray = css_color(page, "--dim")
+    assert page.eval(f"(() => {{ const msg = {LEAF_BLOCK}.querySelector('.chat-msg.ai'); return [msg.classList.contains('dropped'), getComputedStyle(msg).color]; }})()") == [True, gray]
+
+
+@pytest.mark.syngate("AI_CHAT-027")
+def test_a_message_turns_into_a_child_or_next_sibling_item_while_the_chat_stays(server, chrome):
+    page = open_chat(server, chrome, echo=CallsConnector("Leaf sentence\n\nIt shall be extracted."))
+    send(page, "LEAF-001", "Say something")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai .msg-child').click()")
+    page.wait("document.querySelector('#tree [data-path^=\"ROOT/LEAF-001/\"]')")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai .msg-sibling').click()")
+    page.wait("document.querySelectorAll('#tree [data-path]').length === 4")
+    paths = page.eval(PATHS % "#tree")
+    child, sibling = paths[2].rsplit("/", 1)[1], paths[3].rsplit("/", 1)[1]
+    assert paths[2].startswith("ROOT/LEAF-001/") and paths[3] == f"ROOT/{sibling}" and sibling != "LEAF-001"
+    for uid in (child, sibling):
+        extracted = tree_item(server, uid)
+        assert (extracted["header"], extracted["description_raw"]) == ("Leaf sentence", "It shall be extracted.\n")
+    assert page.eval(f"[...{LEAF_BLOCK}.querySelectorAll('.chat-msg')].map((el) => el.className)") == ["chat-msg user", "chat-msg ai"]
+
+
+@pytest.mark.syngate("AI_CHAT-050")
+def test_an_at_reference_brings_the_named_item_into_the_turn(server, chrome):
+    page = open_chat(server, chrome)
+    send(page, "LEAF-001", "Compare with @ROOT please")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    reply = page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai').textContent")
+    assert reply.endswith("|Compare with @ROOT please|model-a|low|edit,internet|None")  # the text stays as typed
+    assert "Root branch" in reply.split("|Compare with")[0].split("It shall leaf.")[-1]  # the referenced statement follows the seed context
 
 
 def pick(page, attribute, value):
@@ -569,12 +709,31 @@ def test_the_history_shows_above_the_input_field_once_there_is_any(server, chrom
 
 
 @pytest.mark.syngate("AI_CHAT-030")
-def test_the_green_check_mark_closes_the_window(server, chrome):
+def test_the_green_check_mark_hides_the_chat_and_becomes_the_drop_down_reopening_it(server, chrome):
     page = open_chat(server, chrome)
-    closer = "document.querySelector('.block-ai .chat-close')"
+    send(page, "LEAF-001", "Kept")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    closer = f"{LEAF_BLOCK}.querySelector('.block-ai .chat-close')"
     assert page.eval(f"[{closer}.textContent, getComputedStyle({closer}).color]") == ["✓", css_color(page, "--green")]
     page.eval(f"{closer}.click()")
-    assert page.eval("[Boolean(document.querySelector('.chat-input')), Boolean(document.querySelector('.block[data-uid=\"LEAF-001\"] .chat-open'))]") == [False, True]
+    hidden = f"[Boolean({LEAF_BLOCK}.querySelector('.chat-input')), Boolean({LEAF_BLOCK}.querySelector('.block-ai .chat-open')), Boolean({LEAF_BLOCK}.querySelector('.block-ai .chat-close')), {LEAF_BLOCK}.querySelector('.block-ai .chat-reopen')?.textContent]"
+    assert page.eval(hidden) == [False, True, False, "▾"]
+    page.eval(f"{LEAF_BLOCK}.querySelector('.block-ai .chat-reopen').click()")
+    assert page.eval(f"[...{LEAF_BLOCK}.querySelectorAll('.chat-msg')].map((el) => el.className)") == ["chat-msg user", "chat-msg ai"]
+
+
+@pytest.mark.syngate("AI_CHAT-030", "replaced")
+def test_a_new_chat_replaces_the_hidden_one_only_when_its_first_message_is_sent(server, chrome):
+    page = open_chat(server, chrome)
+    send(page, "LEAF-001", "Old")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.block-ai .chat-close').click()")
+    page.eval(f"{LEAF_BLOCK}.querySelector('.block-ai .chat-open').click()")
+    assert page.eval(f"[{LEAF_BLOCK}.querySelectorAll('.chat-msg').length, Boolean({LEAF_BLOCK}.querySelector('.block-ai .chat-reopen'))]") == [0, True]  # fresh field, the old history still reachable
+    send(page, "LEAF-001", "New")
+    page.wait(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai')")
+    assert page.eval(f"[[...{LEAF_BLOCK}.querySelectorAll('.chat-msg.user')].map((el) => el.textContent), Boolean({LEAF_BLOCK}.querySelector('.block-ai .chat-reopen'))]") == [["New"], False]
+    assert page.eval(f"{LEAF_BLOCK}.querySelector('.chat-msg.ai').textContent").endswith("|New|model-a|low|edit,internet|None")  # a new session, not the old one
 
 
 @pytest.mark.syngate("AI_CHAT")
@@ -586,13 +745,91 @@ def test_the_chat_window_opens_under_the_item_and_sends_through_the_chosen_setup
     pick(page, "model", "model-b")
     pick(page, "effort", "high")
     assert page.eval(SETUP) == "Echo · b · high ▾"
-    page.eval("(() => { document.querySelector('.chat-input').value = 'What is missing?'; document.querySelector('.chat-send').click(); })()")
+    send(page, "LEAF-001", "What is missing?")
     page.wait("document.querySelector('.chat-msg.ai')")
-    assert page.eval("[...document.querySelectorAll('.chat-msg')].map((el) => el.textContent.trim())") == [
-        "What is missing?", "Root branch It shall leaf.|What is missing?|model-b|high|edit,internet|None"]
-    page.eval("(() => { document.querySelector('.chat-input').value = 'And next?'; document.querySelector('.chat-send').click(); })()")
+    user, ai = page.eval("[...document.querySelectorAll('.chat-msg')].map((el) => el.textContent.trim())")
+    assert user == "What is missing?"
+    assert ai.startswith("Syngate tree calls") and ai.endswith("Root branch It shall leaf.|What is missing?|model-b|high|edit,internet|None")  # the default prompt heads the seed
+    send(page, "LEAF-001", "And next?")
     page.wait("document.querySelectorAll('.chat-msg.ai').length === 2")
     assert page.eval("document.querySelectorAll('.chat-msg.ai')[1].textContent").endswith("|And next?|model-b|high|edit,internet|session-1")
+
+
+def send(page, uid, text):
+    page.eval(f"(() => {{ const box = document.querySelector('.block[data-uid=\"{uid}\"]'); box.querySelector('.chat-input').value = '{text}'; box.querySelector('.chat-send').click(); }})()")
+
+
+CHATTING = "[...document.querySelectorAll('#doc .block.chatting')].map((el) => [el.dataset.uid, Boolean(el.querySelector('.block-chat .chat-input')), Boolean(el.querySelector('.block-ai .chat-close'))])"
+
+
+@pytest.mark.syngate("AI_CHAT-001")
+def test_several_chat_windows_are_open_at_once_each_under_its_own_item(server, chrome):
+    page = open_chat(server, chrome)
+    page.eval("document.querySelector('#doc .block[data-uid=\"ROOT\"] .chat-open').click()")
+    assert page.eval(CHATTING) == [["ROOT", True, True], ["LEAF-001", True, True]]
+    send(page, "ROOT", "Root?")
+    page.wait("document.querySelector('.block[data-uid=\"ROOT\"] .chat-msg.ai')")
+    assert page.eval("document.querySelector('.block[data-uid=\"ROOT\"] .chat-msg.ai').textContent").endswith("|Root?|model-a|low|edit,internet|None")
+    assert page.eval("document.querySelectorAll('.block[data-uid=\"LEAF-001\"] .chat-msg').length") == 0
+    page.eval("document.querySelector('.block[data-uid=\"ROOT\"] .chat-close').click()")
+    assert page.eval(CHATTING) == [["LEAF-001", True, True]]
+
+
+def reload(page):
+    page.cdp.call("Page.reload", session=page.session)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            if page.eval("Boolean(document.querySelector('#tree [data-uid=\"LEAF-001\"]'))"):
+                return
+        except (RuntimeError, AssertionError):
+            pass
+        time.sleep(0.05)
+    raise AssertionError("the page never came back after reload")
+
+
+@pytest.mark.syngate("AI_CHAT-MULTI")
+def test_a_chat_keeps_its_history_while_closed_and_reopens_with_it_on_its_item(server, chrome):
+    page = open_chat(server, chrome)
+    send(page, "LEAF-001", "First")
+    page.wait("document.querySelector('.chat-msg.ai')")
+    page.eval("document.querySelector('.block-ai .chat-close').click()")
+    assert page.eval("document.querySelectorAll('.chat-msg').length") == 0
+    page.eval("document.querySelector('#doc .block[data-uid=\"LEAF-001\"] .chat-reopen').click()")
+    kinds = "[...document.querySelectorAll('.block[data-uid=\"LEAF-001\"] .chat-msg')].map((el) => el.className)"
+    assert page.eval(kinds) == ["chat-msg user", "chat-msg ai"]
+    send(page, "LEAF-001", "Second")
+    page.wait("document.querySelectorAll('.chat-msg.ai').length === 2")
+    assert page.eval("document.querySelectorAll('.chat-msg.ai')[1].textContent").endswith("|Second|model-a|low|edit,internet|session-1")  # the session goes on
+    reload(page)
+    page.wait("document.querySelector('.block[data-uid=\"LEAF-001\"] .chat-msg.ai')")
+    assert page.eval(kinds) == ["chat-msg user", "chat-msg ai", "chat-msg user", "chat-msg ai"]
+    assert page.eval(CHATTING) == [["LEAF-001", True, True]]
+
+
+class ParallelConnector(EchoConnector):
+    """Answers only once two exchanges are in flight at the same time."""
+
+    def __init__(self):
+        super().__init__()
+        self.gate = threading.Barrier(2, timeout=10)
+
+    def dispatch(self, context, text, model=None, effort=None, modes=(), session=None):
+        self.gate.wait()
+        return f"reply to {text} in {session}", f"session-{text}"
+
+
+@pytest.mark.syngate("AI_CHAT-MULTI-020")
+def test_chats_of_different_items_run_their_exchanges_in_parallel(server, chrome):
+    page = open_chat(server, chrome, echo=ParallelConnector())
+    page.eval("document.querySelector('#doc .block[data-uid=\"ROOT\"] .chat-open').click()")
+    reply = "[...document.querySelectorAll('.block[data-uid=\"%s\"] .chat-msg.ai')].map((el) => el.textContent.trim())"
+    for turn in ("one", "two"):
+        send(page, "ROOT", f"root-{turn}")
+        send(page, "LEAF-001", f"leaf-{turn}")
+        page.wait(f"document.querySelectorAll('.chat-msg.ai').length === {2 if turn == 'one' else 4}")
+    assert page.eval(reply % "ROOT") == ["reply to root-one in None", "reply to root-two in session-root-one"]
+    assert page.eval(reply % "LEAF-001") == ["reply to leaf-one in None", "reply to leaf-two in session-leaf-one"]
 
 
 @pytest.mark.syngate("SYNGATE_UI-038")
@@ -663,7 +900,7 @@ def test_a_feature_switched_off_has_no_affordances_on_the_page(server, chrome, s
     make_item(syngate_dir, "LEAF-001", "It shall leaf.\n", parents=("ROOT",), header="First leaf")
     page = Page(chrome, f"{base}/?token={app.token}")
     page.wait("document.querySelector('#tree [data-uid=\"LEAF-001\"]')")
-    gone = "[Boolean(document.querySelector('#tree .dot:not([hidden])')), Boolean(document.querySelector('#tree [data-act=\"tests\"]')), document.querySelectorAll('#tree .badge').length]"
+    gone = "[Boolean(document.querySelector('#tree .status:not([hidden])')), Boolean(document.querySelector('#tree [data-act=\"tests\"]')), document.querySelectorAll('#tree .status .eyes').length]"
     assert page.eval(gone) == [False, False, 0]
     pill = "document.querySelector('#doc .block[data-uid=\"LEAF-001\"] .block-status .pill')"
     entries = "[...document.querySelectorAll('#status-menu [data-run]')].map((el) => el.dataset.run + ':' + el.textContent)"
@@ -673,6 +910,71 @@ def test_a_feature_switched_off_has_no_affordances_on_the_page(server, chrome, s
     page.eval("document.getElementById('status-menu').hidePopover()")
     make_item(syngate_dir, "ROOT", "Root branch\n", parents=(), features=("review",))
     page.wait(f"{pill}.textContent.trim() === '○ not reviewed'")  # picked up by the fingerprint poll
-    assert page.eval("[...document.querySelectorAll('#tree [data-uid=\"LEAF-001\"] .dot, #tree [data-act=\"tests\"]')].map((el) => [el.className, el.hidden])") == [["dot gray", False]]
+    assert page.eval("[...document.querySelectorAll('#tree [data-uid=\"LEAF-001\"] .status, #tree [data-act=\"tests\"]')].map((el) => [el.className, el.hidden])") == [["status gray not_reviewed", False]]
     page.eval(f"{pill}.click()")
     assert page.eval(entries) == ["test:▶ Run test", "review:✓ Mark reviewed"]
+
+
+class GatedConnector(EchoConnector):
+    """Answers the scripted `first` replies at once, then only when released; interrupted, it fails as a killed process does."""
+
+    def __init__(self, *first):
+        super().__init__()
+        self.first = list(first)
+        self.release = threading.Event()
+        self.interrupted = False
+
+    def dispatch(self, context, text, model=None, effort=None, modes=(), session=None):
+        if self.first:
+            return self.first.pop(0), "session-early"
+        self.release.wait(10)
+        if self.interrupted:
+            raise synthetic.connection_error("claude exited with -9")
+        return {"kind": "text", "text": f"late reply to {text}"}, "session-late"
+
+    def interrupt(self, ident):
+        self.interrupted = True
+        self.release.set()
+
+
+LEAF = "document.querySelector('.block[data-uid=\"LEAF-001\"]')"
+WAITING = f"Boolean({LEAF}.querySelector('.chat-msg.note .spinner'))"
+
+
+@pytest.mark.syngate("AI_CHAT-060")
+def test_a_turn_is_awaited_on_the_server_and_a_reloaded_page_re_attaches_to_it(server, chrome):
+    base, app = server
+    gated = GatedConnector()
+    page = open_chat(server, chrome, echo=gated)
+    send(page, "LEAF-001", "Slow one")
+    page.wait(WAITING)
+    page.wait("state.chats.get('LEAF-001').turn")
+    turn = page.eval("state.chats.get('LEAF-001').turn")
+    assert call(base, app, f"/api/turn/{turn}")[1] == {"turn": turn, "running": True}
+    reload(page)
+    page.wait(WAITING)
+    assert page.eval(f"{LEAF}.querySelectorAll('.chat-msg.ai').length") == 0
+    gated.release.set()
+    page.wait(f"{LEAF}.querySelector('.chat-msg.ai')")
+    assert page.eval(f"{LEAF}.querySelector('.chat-msg.ai').textContent").strip() == "late reply to Slow one"
+    assert page.eval("[state.chats.get('LEAF-001').turn, state.chats.get('LEAF-001').session]") == [None, "session-late"]
+    with pytest.raises(urllib.error.HTTPError) as handed_over:
+        call(base, app, f"/api/turn/{turn}")
+    assert handed_over.value.code == 404
+
+
+@pytest.mark.syngate("AI_CHAT-061")
+def test_while_a_turn_runs_the_close_mark_is_a_stop_button_that_interrupts_it(server, chrome):
+    gated = GatedConnector({"kind": "calls", "calls": [{"tool": "query", "uid": "@"}]})
+    page = open_chat(server, chrome, echo=gated)
+    pills = f"[Boolean({LEAF}.querySelector('.block-ai .chat-close')), Boolean({LEAF}.querySelector('.block-ai .chat-stop')), Boolean({LEAF}.querySelector('.chat-pill.busy'))]"
+    assert page.eval(pills) == [True, False, False]
+    send(page, "LEAF-001", "Stuck one")
+    page.wait(f"{LEAF}.querySelector('.block-ai .chat-stop')")
+    assert page.eval(pills) == [False, True, True]
+    page.eval(f"{LEAF}.querySelector('.block-ai .chat-stop').click()")
+    page.wait(f"{LEAF}.querySelector('.chat-msg.error')")
+    assert gated.interrupted
+    stopped = page.eval(f"{LEAF}.querySelector('.chat-msg.error').textContent").strip()
+    assert stopped.startswith("- LEAF-001: {") and stopped.endswith("\nturn stopped")
+    assert page.eval(pills) == [True, False, False]

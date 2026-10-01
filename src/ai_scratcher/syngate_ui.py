@@ -36,8 +36,8 @@ from . import synthetic
 
 DEFAULT_PORT = 8712
 DEFAULT_BUILD_DIR = "cmake-build-debug-clang"
-# UIDs and the glob patterns syngate.py accepts for batch review/clear.
-RUN_UID_RE = re.compile(r"^[A-Za-z0-9_\-?*\[\]!]+$")
+# UIDs and the glob patterns syngate.py accepts for batch review/clear, a `UID:binding` narrowing a test run to one binding.
+RUN_UID_RE = re.compile(r"^[A-Za-z0-9_\-?*\[\]!:]+$")
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # Coverage files picked up automatically when none are given explicitly.
 DEFAULT_COVERAGE = ("pytest-coverage.jsonl", "syngate_coverage.jsonl", "build-ci/syngate_coverage.jsonl")
@@ -94,6 +94,28 @@ class Job:
             yield from fresh
             if done is not None:
                 return done
+
+
+class Turn:
+    """One chat exchange run on its own thread: the page awaits its outcome by polling, re-attaching after a reload, and may stop it."""
+
+    def __init__(self, turn_id, connector):
+        self.id = turn_id
+        self.connector = connector
+        self.thread = None
+        self.outcome = None
+        self.stopped = False
+        self.cond = threading.Condition()
+
+    def finish(self, outcome):
+        with self.cond:
+            self.outcome = outcome
+            self.cond.notify_all()
+
+    def snapshot(self, wait=0):
+        with self.cond:
+            self.cond.wait_for(lambda: self.outcome is not None, timeout=wait)
+            return {"turn": self.id, "running": self.outcome is None, **(self.outcome or {})}
 
 
 class JobRunner:
@@ -159,6 +181,8 @@ class SyngateUIApp:
         self.build_dir = build_dir
         self.token = secrets.token_urlsafe(24)
         self.jobs = JobRunner()
+        self.turns = {}
+        self._turn_lock = threading.Lock()
         self.connectors = {name: connector(cwd=self.root) for name, connector in synthetic.CONNECTORS.items()}
 
     # -- model ------------------------------------------------------------
@@ -328,31 +352,102 @@ class SyngateUIApp:
             path.write_text(text, encoding="utf-8")
         return {"ok": True, "stored": {"file": text}, "sha": hashlib.sha256(text.encode()).hexdigest()}
 
-    def chat(self, data):
-        """One exchange anchored at `uid`: the item's seed context plus the user's text go to the chosen connector.
-        A plain answer comes back as the reply; an answer of tree calls is applied to the tree and the reply lists what was applied."""
-        uid = data.get("uid")
-        try:
-            reply, session = synthetic.query(self.connectors, self._load(), uid, str(data.get("text") or ""), data.get("connector"),
-                                             data.get("model"), data.get("effort"), modes=data.get("modes") or (), session=data.get("session"))
-        except synthetic.query_error as err:
-            raise ApiError(400, str(err)) from None
-        except synthetic.connection_error as err:
-            raise ApiError(502, str(err)) from None
-        try:
-            kind, payload = synthetic.parse_reply(reply)
-        except synthetic.protocol_error as err:
-            raise ApiError(422, f"answer refused: {err}", session=session) from None
-        if kind == "chat":
-            return {"ok": True, "reply": reply, "session": session}
-        items, applied = self._load(), []
-        for call in payload:
+    def start_turn(self, data):
+        """Start `chat(data)` as a turn the page polls through `turn_snapshot`; -> its id."""
+        with self._turn_lock:
+            turn = Turn(len(self.turns) + 1, data.get("connector"))
+            self.turns[turn.id] = turn
+
+        def run():
             try:
-                applied.append(_call(lambda: synthetic.apply_call(items, uid, call, syngate_dir=self.syngate_dir)))
+                turn.finish(self.chat(data, turn))
             except ApiError as err:
-                named = uid if call["uid"] == "@" else call["uid"]
-                raise ApiError(err.status, "\n".join([*applied, f"{call['tool']} {named} refused: {err}"]), session=session) from None
-        return {"ok": True, "reply": "\n".join(applied), "session": session, "calls": payload}
+                turn.finish({"error": str(err), "status": err.status, **err.extra})
+
+        turn.thread = threading.Thread(target=run, daemon=True)
+        turn.thread.start()
+        return {"turn": turn.id}
+
+    def _turn(self, turn_id):
+        turn = self.turns.get(turn_id)
+        if turn is None:
+            raise ApiError(404, f"no such turn {turn_id}")
+        return turn
+
+    def turn_snapshot(self, turn_id, wait=0):
+        """The turn's state, awaited up to `wait` seconds; a finished turn is handed over once."""
+        snapshot = self._turn(turn_id).snapshot(wait)
+        if not snapshot["running"]:
+            self.turns.pop(turn_id, None)
+        return snapshot
+
+    def stop_turn(self, turn_id):
+        """End a running turn: its connector's live process is interrupted and the exchange reports as stopped."""
+        turn = self._turn(turn_id)
+        turn.stopped = True
+        interrupt = getattr(self.connectors.get(turn.connector), "interrupt", None)
+        if interrupt and turn.thread:
+            interrupt(turn.thread.ident)
+        return {"ok": True}
+
+    def chat(self, data, turn=None):
+        """One exchange anchored at `uid`: the item's seed context plus the user's text go to the chosen connector.
+        A plain answer comes back as the reply; an answer of Syngate API calls is applied to the tree -- its test calls joined
+        into one awaited run through the page's runner after the rest -- and while it carries queries or runs their results go
+        back into the same session for the next answer. The reply lists everything applied.
+        `history` is the kept part of an exchange whose session was dropped: it travels with the text of the first round.
+        A `turn` stopped while a round is out ends the exchange there, what was applied so far staying applied."""
+        uid, text, session, applied, calls = data.get("uid"), str(data.get("text") or ""), data.get("session"), [], []
+        history = [message for message in (data.get("history") or ()) if isinstance(message, dict)]
+        for _ in range(synthetic.QUERY_ROUNDS):
+            try:
+                reply, session = synthetic.query(self.connectors, self._load(), uid, text, data.get("connector"), data.get("model"),
+                                                 data.get("effort"), modes=data.get("modes") or (), session=session, history=history)
+            except synthetic.query_error as err:
+                raise ApiError(400, str(err)) from None
+            except synthetic.connection_error as err:
+                if turn and turn.stopped:
+                    raise ApiError(409, "\n".join([*applied, "turn stopped"]), session=session) from None
+                raise ApiError(502, str(err)) from None
+            if turn and turn.stopped:
+                raise ApiError(409, "\n".join([*applied, "turn stopped"]), session=session)
+            try:
+                kind, payload = synthetic.parse_reply(reply)
+            except synthetic.protocol_error as err:
+                raise ApiError(422, f"answer refused: {err}", session=session) from None
+            if kind == "chat":
+                return {"ok": True, "reply": "\n".join([*applied, payload]), "session": session, **({"calls": calls} if calls else {})}
+            items, results = self._load(), []
+            named = lambda call: uid if call["uid"] == "@" else call["uid"]
+            refused = lambda err, line: ApiError(err.status, "\n".join([*applied, *results, f"{line} refused: {err}"]), session=session)
+            runs = [call for call in payload if synthetic.is_run(call)]
+            for call in payload:
+                if synthetic.is_run(call):
+                    continue
+                try:
+                    results.append(_call(lambda: synthetic.apply_call(items, uid, call, syngate_dir=self.syngate_dir)))
+                except ApiError as err:
+                    raise refused(err, f"{call['tool']} {named(call)}") from None
+            if runs:
+                try:
+                    results.append(self._run_calls(items, [(named(call), call.get("name") or None) for call in runs]))
+                except ApiError as err:
+                    raise refused(err, f"test {' '.join(dict.fromkeys(named(call) for call in runs))}") from None
+            applied += results
+            calls += payload
+            if not any(synthetic.is_query(call) for call in payload) and not runs:
+                return {"ok": True, "reply": "\n".join(applied), "session": session, "calls": calls}
+            text = synthetic.RESULTS_PREAMBLE + "\n".join(results)
+        raise ApiError(422, "\n".join([*applied, "answer refused: the exchange kept querying"]), session=session)
+
+    def _run_calls(self, items, addressed):
+        """Every test call of a batch -- `addressed` being (uid, binding|None) -- as one run of the page's runner, awaited;
+        -> its outcome as the AI reads it back."""
+        targets = list(dict.fromkeys((leaf, name) for uid, name in addressed for leaf in syngatelib.leaves_under(items, uid)))
+        job = self.jobs.get(self.start_run({"action": "test", "uids": [f"{leaf}:{name}" if name else leaf for leaf, name in targets]})["job"])
+        for _ in job.stream():
+            pass
+        return synthetic.run_report(items, targets, syngatelib.load_coverage([self.run_coverage])[0])
 
     def start_run(self, data):
         action = data.get("action")
@@ -460,6 +555,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                                  "files": self.app.file_shas(parse_qs(urlsplit(self.path).query).get("file", []))})
             elif path == "/api/file":
                 self._json(200, self.app.read_file((parse_qs(urlsplit(self.path).query).get("path") or [""])[0]))
+            elif (match := re.fullmatch(r"/api/turn/(\d+)", path)):
+                wait = (parse_qs(urlsplit(self.path).query).get("wait") or ["0"])[0]
+                self._json(200, self.app.turn_snapshot(int(match.group(1)), min(float(wait), 30)))
             elif (match := re.fullmatch(r"/api/job/(\d+)", path)):
                 self._job_snapshot(int(match.group(1)))
             elif (match := re.fullmatch(r"/api/job/(\d+)/events", path)):
@@ -491,6 +589,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self._json(200, self.app.start_run(payload))
             elif path == "/api/chat":
                 self._json(200, self.app.chat(payload))
+            elif path == "/api/turn":
+                self._json(200, self.app.start_turn(payload))
+            elif (match := re.fullmatch(r"/api/turn/(\d+)/stop", path)):
+                self._json(200, self.app.stop_turn(int(match.group(1))))
             else:
                 self._json(404, {"error": f"no route for POST {path}"})
         except ApiError as exc:

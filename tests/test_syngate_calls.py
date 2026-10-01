@@ -267,3 +267,34 @@ def test_a_structured_answer_dispatches_into_the_calls_anchored_at_its_item(syng
     for malformed in ('[{"tool": "edit", "uid": "A-1"}]', '[{"tool": "edit", "uid": "A-1", "header": " "}]'):
         with pytest.raises(synthetic.protocol_error):
             synthetic.parse_reply(f"```syngate\n{malformed}\n```")
+
+
+@pytest.mark.syngate("SYNGATE-API-QUERY")
+def test_query_reads_an_item_with_its_children_in_sibling_order_and_its_kind(cli, capsys):
+    run, syngate_dir = cli
+    items, _ = syngatelib.load_tree(syngate_dir)
+    root = synthetic.item_view(items, "ROOT")
+    assert (root["uid"], root["description"], root["parents"], root["children"]) == ("ROOT", "Root branch\n", [], ["BRANCH", "LEAF-001"])
+    assert synthetic.item_view(items, "BRANCH") == {"uid": "BRANCH", "header": "", "description": "It shall group.\n", "parents": ["ROOT"], "children": [], "kind": "branch"}
+    assert synthetic.item_view(items, "LEAF-001")["kind"] == "leaf"
+    with pytest.raises(syngatelib.unknown_uid):
+        synthetic.item_view(items, "LEAF-009")
+    line = synthetic.apply_call(items, "ROOT", {"tool": "query", "uid": "@"})
+    assert line.startswith("- ROOT: ") and yaml.safe_load(line.removeprefix("- ROOT: ")) == root
+    capsys.readouterr()
+    assert run("query", "ROOT") == 0 and yaml.safe_load(capsys.readouterr().out) == root
+    assert run("query", "LEAF-009") == 1
+
+
+@pytest.mark.syngate("SYNGATE-API-CONTEXT")
+def test_context_reads_the_seed_an_exchange_anchored_at_the_item_is_formed_from(cli, capsys):
+    run, syngate_dir = cli
+    items, _ = syngatelib.load_tree(syngate_dir)
+    seed = synthetic.seed_context(items, "LEAF-001")
+    assert seed.startswith(synthetic.TREE_CALLS) and seed.endswith("Root branch\nIt shall leaf.\n")
+    assert synthetic.apply_call(items, "ROOT", {"tool": "context", "uid": "LEAF-001"}) == f"- context of LEAF-001:\n{seed}"
+    with pytest.raises(syngatelib.unknown_uid):
+        synthetic.seed_context(items, "LEAF-009")
+    capsys.readouterr()
+    assert run("context", "LEAF-001") == 0 and capsys.readouterr().out == seed
+    assert run("context", "LEAF-009") == 1

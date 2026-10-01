@@ -1,0 +1,6 @@
+header: Stop in place of close
+description: |
+  While a turn runs — a single answer or one awaiting subagents or a workflow — the chat's close check mark shall turn into a stop button, close and collapse being unavailable until the turn ends; stop interrupts the connector's process, the calls applied so far stay applied, and the chat shows the turn as stopped with the close mark and send offered again.
+parents: [AI_CHAT]
+order: 130
+test: ~

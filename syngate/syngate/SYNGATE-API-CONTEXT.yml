@@ -1,0 +1,6 @@
+header: Node context
+description: |
+  The syngate context call shall return an item's seed AI-context exactly as an AI call anchored at the item is seeded from it.
+parents: [SYNGATE-API]
+order: 70
+test: ~

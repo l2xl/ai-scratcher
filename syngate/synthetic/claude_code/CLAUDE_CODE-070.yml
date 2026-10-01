@@ -1,0 +1,6 @@
+header: Asynchronous subagents awaited
+description: |
+  A turn of the Claude Code connector shall last until the `claude` process exits — every subagent and workflow launched in the turn having reported and the model having answered again — the output of that last answer being the turn's answer.
+parents: [CLAUDE_CODE]
+order: 70
+test: ~

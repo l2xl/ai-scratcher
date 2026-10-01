@@ -1,0 +1,6 @@
+header: Items as references
+description: |
+  A chat message shall name an item with `@UID` the way a file is named, the harness resolving the reference into the item's statement for the turn.
+parents: [AI_CHAT]
+order: 140
+test: ~

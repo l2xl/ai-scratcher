@@ -1,0 +1,5 @@
+header: Wrong review stamp  not error
+description: |
+  Wrong review stamp format should be treated as its abcense not error
+parents: [INFRA-049]
+test: ~
