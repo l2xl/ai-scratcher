@@ -41,29 +41,106 @@ def test_seed_context_opens_with_the_default_prompt_then_every_ancestor_once_par
     assert synthetic.seed_context(items, "LEAF-001") == prompt + "Root.\nSide A.\nSide B.\nIt shall leaf.\n"
 
 
+def _library(folder):
+    """A prompt library of two skills -- `rules` default, `brief` on request -- and one tool, written as front-matter markdown."""
+    folder.mkdir(exist_ok=True)
+    (folder / "rules.md").write_text("---\nkind: skill\ndescription: The rules\ndefault: true\n---\n# Rules\nFollow them.\n")
+    (folder / "brief.md").write_text("---\nkind: skill\ndescription: Be brief\n---\n\nSay less.\n\n")
+    (folder / "echo.md").write_text("---\nkind: tool\ndescription: Echo back\n---\n# Echo\n`{\"tool\": \"echo\"}` echoes.\n")
+    (folder / "notes.txt").write_text("not a prompt")
+    return synthetic.load_prompts(folder)
+
+
 @pytest.mark.syngate("AI_CHAT-PROMPTS")
-def test_the_prompt_library_is_read_from_markdown_files_and_the_named_prompt_heads_the_seed(tmp_path, syngate_tree, monkeypatch):
-    (tmp_path / "default.md").write_text("Default.\n")
-    (tmp_path / "brief.md").write_text("Be brief.\n")
-    (tmp_path / "notes.txt").write_text("not a prompt")
-    assert synthetic.load_prompts(tmp_path) == {"brief": "Be brief.\n", "default": "Default.\n"}
-    assert synthetic.PROMPTS == synthetic.load_prompts() and synthetic.DEFAULT_PROMPT in synthetic.PROMPTS
+def test_the_prompt_library_is_read_from_front_matter_markdown_files_by_name_as_skills_and_tools(tmp_path, syngate_tree):
+    library = _library(tmp_path / "prompts")
+    assert library == {
+        "brief": synthetic.prompt("brief", "skill", "Be brief", False, "Say less.\n"),
+        "echo": synthetic.prompt("echo", "tool", "Echo back", False, "# Echo\n`{\"tool\": \"echo\"}` echoes.\n"),
+        "rules": synthetic.prompt("rules", "skill", "The rules", True, "# Rules\nFollow them.\n")}
+    (tmp_path / "prompts" / "bare.md").write_text("No front matter.\n")
+    assert synthetic.load_prompts(tmp_path / "prompts")["bare"] == synthetic.prompt("bare", "skill", "", False, "No front matter.\n")
+    assert synthetic.LIBRARY == synthetic.load_prompts() and set(synthetic.PROMPTS) == set(synthetic.LIBRARY) | {synthetic.DEFAULT_PROMPT}
+    assert all(synthetic.PROMPTS[name] == entry.text for name, entry in synthetic.LIBRARY.items())
+    assert synthetic.SKILLS == {name: entry for name, entry in synthetic.LIBRARY.items() if entry.kind == "skill"}
     syngate_dir, make_item = syngate_tree
     make_item(syngate_dir, "ROOT", "Root.\n", parents=())
     items, _ = syngatelib.load_tree(syngate_dir)
-    monkeypatch.setitem(synthetic.PROMPTS, "brief", "Be brief.\n")
-    assert synthetic.seed_context(items, "ROOT", prompt="brief") == "Be brief.\n\nRoot.\n"
-    assert synthetic.seed_context(items, "ROOT").startswith(synthetic.PROMPTS[synthetic.DEFAULT_PROMPT])
+    assert synthetic.seed_context(items, "ROOT") == synthetic.PROMPTS[synthetic.DEFAULT_PROMPT] + "\nRoot.\n"
 
 
 @pytest.mark.syngate("AI_CHAT-PROMPTS-DEFAULT")
-def test_the_default_prompt_is_a_shipped_file_carrying_the_structured_tree_call_instructions():
-    path = synthetic.PROMPTS_DIR / "default.md"
-    assert path.is_file() and path.name != "CLAUDE.md" and not list(synthetic.PROMPTS_DIR.glob("CLAUDE.md"))
-    text = path.read_text(encoding="utf-8")
-    assert text == synthetic.PROMPTS["default"] == synthetic.TREE_CALLS
-    assert text.startswith("# Syngate tree calls") and "```syngate" in text and '"@"' in text
-    assert all(f'"tool": "{tool}"' in text for tool in synthetic.TOOLS)
+def test_the_default_prompt_is_composed_of_the_default_skills_the_skills_on_request_and_every_tool(tmp_path):
+    library = _library(tmp_path / "prompts")
+    assert synthetic.default_prompt(library) == ("# Rules\nFollow them.\n\n# Skills on request\nLoad one with the `skill` tool:\n- `brief`: Be brief\n\n"
+                                                 "# Echo\n`{\"tool\": \"echo\"}` echoes.\n")
+    assert synthetic.default_prompt({"rules": library["rules"]}) == "# Rules\nFollow them.\n\n# Skills on request\nLoad one with the `skill` tool:\nnone\n"
+    shipped = synthetic.PROMPTS[synthetic.DEFAULT_PROMPT]
+    assert shipped == synthetic.default_prompt(synthetic.LIBRARY) and not list(synthetic.PROMPTS_DIR.glob("CLAUDE.md"))
+    assert all(entry.text in shipped for entry in synthetic.LIBRARY.values() if entry.kind == "tool" or entry.default)
+    assert all(f'"tool": "{tool}"' in shipped for tool in synthetic.CALLS)
+
+
+@pytest.mark.syngate("AI_CHAT-PROMPTS-SKILLS")
+def test_every_skill_carries_a_description_and_only_the_skills_on_request_are_listed_for_loading(tmp_path):
+    library = _library(tmp_path / "prompts")
+    listed = synthetic.default_prompt(library).split(synthetic.SKILLS_ON_REQUEST, 1)[1]
+    assert listed.startswith("- `brief`: Be brief\n") and "rules" not in listed and "echo" not in listed
+    assert synthetic.SKILLS and all(entry.description for entry in synthetic.SKILLS.values())
+    assert "skill" in synthetic.CALLS and synthetic.LIBRARY["skill"].kind == "tool"
+
+
+@pytest.mark.syngate("AI_CHAT-SKILL-CALL-TOOL")
+def test_the_tool_call_skill_is_a_default_skill_stating_the_answer_format_and_the_result_round_trip():
+    skill = synthetic.SKILLS["call_tool"]
+    assert skill.default and skill.text.startswith("# Tool calls\n")
+    for phrase in ('{"kind": "text", "text": "…"}', '{"kind": "calls", "calls": [...]}', "```syngate", "never both",
+                   "applied in order", "first refused one stops the batch", "next prompt"):
+        assert phrase in skill.text
+
+
+@pytest.mark.syngate("AI_CHAT-SKILL-SYNGATE")
+def test_the_syngate_rules_skill_is_a_default_skill_stating_the_dag_rules():
+    skill = synthetic.SKILLS["syngate"]
+    assert skill.default and skill.text.startswith("# Syngate DAG rules\n")
+    for phrase in ("directed acyclic graph", "testable statement", "split into children", "markdown files", "root-relative link",
+                   "tags equal to the item UID", "numbered suffix"):
+        assert phrase in skill.text
+
+
+@pytest.mark.syngate("AI_CHAT-PROMPTS-TOOLS")
+def test_every_tool_definition_is_in_the_default_prompt_and_every_call_is_defined_by_a_tool():
+    tools = {name: entry for name, entry in synthetic.LIBRARY.items() if entry.kind == "tool"}
+    assert set(tools) == {"skill", "syngate_api"} and all(entry.description for entry in tools.values())
+    shipped = synthetic.PROMPTS[synthetic.DEFAULT_PROMPT]
+    assert all(entry.text in shipped for entry in tools.values())
+    assert all(any(f'"tool": "{call}"' in entry.text for entry in tools.values()) for call in synthetic.CALLS)
+    assert all(f'"tool": "{call}"' in tools["syngate_api"].text for call in list(synthetic.TOOLS) + ["query", "context", "test"])
+
+
+@pytest.mark.syngate("AI_CHAT-TOOL-SKILL")
+def test_the_skill_call_brings_the_named_skill_back_as_the_next_prompt_and_an_unknown_name_is_refused(tmp_path, syngate_tree):
+    assert synthetic.parse_reply({"kind": "calls", "calls": [{"tool": "skill", "name": "syngate"}]}) == ("calls", [{"tool": "skill", "name": "syngate"}])
+    with pytest.raises(synthetic.protocol_error, match="missing name"):
+        synthetic.parse_reply({"kind": "calls", "calls": [{"tool": "skill"}]})
+    shape = next(shape for shape in synthetic.ANSWER_SCHEMA["properties"]["calls"]["items"]["anyOf"] if shape["properties"]["tool"]["const"] == "skill")
+    assert shape["required"] == ["tool", "name"] and "uid" not in shape["properties"]
+    assert synthetic.apply_call({}, "ROOT", {"tool": "skill", "name": "syngate"}) == "- skill syngate:\n" + synthetic.SKILLS["syngate"].text
+    with pytest.raises(syngatelib.tree_error, match="unknown skill 'fly'"):
+        synthetic.apply_call({}, "ROOT", {"tool": "skill", "name": "fly"})
+    syngate_dir, make_item = syngate_tree
+    make_item(syngate_dir, "ROOT", "Root.\n", parents=())
+    app = syngate_ui.SyngateUIApp(root=tmp_path, syngate_dir=syngate_dir)
+    calls = lambda *batch: {"kind": "calls", "calls": list(batch)}
+    ask = lambda: app.chat({"uid": "ROOT", "connector": "scripted", "model": "model-a", "effort": "low", "text": "Which rules?"})
+    app.connectors = {"scripted": (scripted := ScriptedConnection(calls({"tool": "skill", "name": "call_tool"}), {"kind": "text", "text": "Got it."}))}
+    result = ask()
+    assert scripted.prompts[1] == (synthetic.RESULTS_PREAMBLE + "- skill call_tool:\n" + synthetic.SKILLS["call_tool"].text, "session-1")
+    assert result["reply"].endswith(synthetic.SKILLS["call_tool"].text + "\nGot it.") and result["session"] == "session-2"
+    app.connectors = {"scripted": ScriptedConnection(calls({"tool": "skill", "name": "fly"}))}
+    with pytest.raises(syngate_ui.ApiError, match="skill fly refused: unknown skill 'fly'") as refused:
+        ask()
+    assert refused.value.status == 400
 
 
 class EchoConnection:
@@ -81,7 +158,7 @@ def test_query_goes_through_the_selected_connection_model_and_effort(syngate_tre
     items, _ = syngatelib.load_tree(syngate_dir)
     connectors = {"echo": EchoConnection(), "other": None}
     reply, session = synthetic.query(connectors, items, "LEAF-001", "What is missing?", "echo", "model-b", "high", modes=["edit"], session="session-0")
-    assert (reply, session) == (synthetic.TREE_CALLS + "\nRoot.\nIt shall leaf.\n|What is missing?|model-b|high|edit|session-0", "session-1")
+    assert (reply, session) == (synthetic.PROMPTS[synthetic.DEFAULT_PROMPT] + "\nRoot.\nIt shall leaf.\n|What is missing?|model-b|high|edit|session-0", "session-1")
     with pytest.raises(synthetic.query_error):
         synthetic.query(connectors, items, "LEAF-001", "hi", "echo", "model-a", "low", modes=["fly"])
     for uid, text, connector, model, effort in (("NOPE", "hi", "echo", "model-a", "low"), ("LEAF-001", "hi", "absent", "model-a", "low"),
@@ -152,12 +229,19 @@ def test_workflows_mode_allows_the_workflow_tool(tmp_path):
 
 
 @pytest.mark.syngate("CLAUDE_CODE-050")
-def test_the_tree_call_protocol_is_appended_and_tree_file_edits_are_denied_in_every_mode(tmp_path):
+def test_the_seed_context_is_the_appended_system_prompt_and_tree_file_edits_are_denied_in_every_mode(tmp_path, syngate_tree):
+    syngate_dir, make_item = syngate_tree
+    make_item(syngate_dir, "ROOT", "Root.\n", parents=())
+    items, _ = syngatelib.load_tree(syngate_dir)
+    stub = tmp_path / "claude_stub.py"
+    stub.write_text(STUB_CLAUDE)
+    connector = synthetic.claude_code_connector(cli=(sys.executable, str(stub)), cwd=tmp_path)
     for modes in ([], ["edit"], ["edit", "internet", "workflows"]):
-        argv = _mode_argv(tmp_path, modes)
-        assert argv[argv.index("--append-system-prompt") + 1] == synthetic.TREE_CALLS
+        echoed = json.loads(connector.dispatch(synthetic.seed_context(items, "ROOT"), "Go.", modes=modes)[0])
+        argv = echoed["argv"]
+        assert echoed["seed"] == synthetic.PROMPTS[synthetic.DEFAULT_PROMPT] + "\nRoot.\n" and "--append-system-prompt" not in argv
         assert argv[argv.index("--disallowedTools") + 1] == "Edit(syngate/**),Write(syngate/**)"
-    assert synthetic.TREE_CALLS.startswith("# Syngate tree calls") and "```syngate" in synthetic.TREE_CALLS
+    assert synthetic.LIBRARY["syngate_api"].text in synthetic.PROMPTS[synthetic.DEFAULT_PROMPT]
 
 
 @pytest.mark.syngate("SYNTHETIC-020")
@@ -185,7 +269,7 @@ print(json.dumps({"result": "the text the model also printed", "structured_outpu
 
 
 @pytest.mark.syngate("CLAUDE_CODE-060")
-def test_the_answer_schema_carries_every_syngate_api_tool_and_the_structured_output_is_the_answer(tmp_path):
+def test_the_answer_schema_carries_every_tool_call_and_the_structured_output_is_the_answer(tmp_path):
     stub = tmp_path / "claude_stub.py"
     stub.write_text(STUB_CLAUDE)
     argv = json.loads(synthetic.claude_code_connector(cli=(sys.executable, str(stub)), cwd=tmp_path).dispatch("", "Go.")[0])["argv"]
@@ -193,7 +277,7 @@ def test_the_answer_schema_carries_every_syngate_api_tool_and_the_structured_out
     assert schema == synthetic.ANSWER_SCHEMA and schema["properties"]["kind"]["enum"] == ["text", "calls"]
     shapes = {shape["properties"]["tool"]["const"]: shape["required"] for shape in schema["properties"]["calls"]["items"]["anyOf"]}
     assert shapes == {tool: ["tool", *fields] for tool, fields in synthetic.CALLS.items()}
-    assert set(synthetic.QUERIES) == {"query", "context"} and set(synthetic.RUNS) == {"test"}
+    assert set(synthetic.QUERIES) == {"query", "context", "skill"} and set(synthetic.RUNS) == {"test"}
     assert set(synthetic.CALLS) == set(synthetic.TOOLS) | set(synthetic.QUERIES) | set(synthetic.RUNS)
     structured = tmp_path / "structured_stub.py"
     structured.write_text(STUB_STRUCTURED)
@@ -264,7 +348,7 @@ with open(argv[argv.index("--coverage-out") + 1], "a") as out:
 """
 
 
-@pytest.mark.syngate("SYNGATE-API-AI-TEST")
+@pytest.mark.syngate("SYNGATE-API-AI", "run")
 def test_a_test_call_runs_the_bound_routines_through_the_page_runner_and_reports_the_outcome(tmp_path, syngate_tree):
     syngate_dir, make_item = syngate_tree
     make_item(syngate_dir, "ROOT", "Root.\n", parents=())

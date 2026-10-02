@@ -291,7 +291,7 @@ def test_context_reads_the_seed_an_exchange_anchored_at_the_item_is_formed_from(
     run, syngate_dir = cli
     items, _ = syngatelib.load_tree(syngate_dir)
     seed = synthetic.seed_context(items, "LEAF-001")
-    assert seed.startswith(synthetic.TREE_CALLS) and seed.endswith("Root branch\nIt shall leaf.\n")
+    assert seed.startswith(synthetic.PROMPTS[synthetic.DEFAULT_PROMPT]) and seed.endswith("Root branch\nIt shall leaf.\n")
     assert synthetic.apply_call(items, "ROOT", {"tool": "context", "uid": "LEAF-001"}) == f"- context of LEAF-001:\n{seed}"
     with pytest.raises(syngatelib.unknown_uid):
         synthetic.seed_context(items, "LEAF-009")

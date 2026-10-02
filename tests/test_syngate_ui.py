@@ -749,7 +749,7 @@ def test_the_chat_window_opens_under_the_item_and_sends_through_the_chosen_setup
     page.wait("document.querySelector('.chat-msg.ai')")
     user, ai = page.eval("[...document.querySelectorAll('.chat-msg')].map((el) => el.textContent.trim())")
     assert user == "What is missing?"
-    assert ai.startswith("Syngate tree calls") and ai.endswith("Root branch It shall leaf.|What is missing?|model-b|high|edit,internet|None")  # the default prompt heads the seed
+    assert ai.startswith("Tool calls") and ai.endswith("Root branch It shall leaf.|What is missing?|model-b|high|edit,internet|None")  # the default prompt heads the seed
     send(page, "LEAF-001", "And next?")
     page.wait("document.querySelectorAll('.chat-msg.ai').length === 2")
     assert page.eval("document.querySelectorAll('.chat-msg.ai')[1].textContent").endswith("|And next?|model-b|high|edit,internet|session-1")

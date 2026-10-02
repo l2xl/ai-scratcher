@@ -2,7 +2,7 @@
 # Copyright (c) 2026 l2xl (l2xl/at/proton.me)
 # Distributed under the Intellectual Property Reserve License, v2 (IPRL)
 
-"""Synthetic agent library: prompt library, item seed context, AI connections and the tree call protocol of a reply."""
+"""Synthetic agent library: the prompt library of skills and tools, item seed context, AI connections and the tool call protocol of a reply."""
 
 import json
 import re
@@ -10,6 +10,9 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
+from typing import NamedTuple
+
+import yaml
 
 from . import syngatelib
 
@@ -18,21 +21,49 @@ CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 DEFAULT_PROMPT = "default"
+FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+SKILLS_ON_REQUEST = "# Skills on request\nLoad one with the `skill` tool:\n"
+
+
+class prompt(NamedTuple):
+    """One markdown file of the library: its stem is the name, its front matter the `kind` (skill|tool), the `description`
+    listing it and, for a skill, whether it is in the default prompt; the text is the body after the front matter."""
+    name: str
+    kind: str
+    description: str
+    default: bool
+    text: str
+
+
+def read_prompt(path):
+    raw = path.read_text(encoding="utf-8")
+    match = FRONT_MATTER_RE.match(raw)
+    meta = (yaml.safe_load(match.group(1)) if match else None) or {}
+    body = raw[match.end():] if match else raw
+    return prompt(path.stem, str(meta.get("kind") or "skill"), str(meta.get("description") or ""), bool(meta.get("default")),
+                  body.strip("\n") + "\n")
 
 
 def load_prompts(prompts_dir=PROMPTS_DIR):
-    """The prompt library: name -> text of every markdown file under `prompts_dir`, the name being the file stem."""
-    return {path.stem: path.read_text(encoding="utf-8") for path in sorted(prompts_dir.glob("*.md"))}
+    """The prompt library: name -> prompt of every markdown file under `prompts_dir`, the name being the file stem."""
+    return {path.stem: read_prompt(path) for path in sorted(prompts_dir.glob("*.md"))}
 
 
-PROMPTS = load_prompts()
-# The reply protocol: the tree changes only through tree calls, and a reply is either text or one
-# block of calls. It is the default prompt heading every seed context, and every connection appends
-# it to its system prompt as well.
-TREE_CALLS = PROMPTS[DEFAULT_PROMPT]
+def default_prompt(library):
+    """The default prompt composed from the library: the default skills, the list of the skills on request by name and
+    description, then every tool definition."""
+    skills = [entry for entry in library.values() if entry.kind == "skill"]
+    on_request = "\n".join(f"- `{entry.name}`: {entry.description}" for entry in skills if not entry.default) or "none"
+    return "\n".join([*(entry.text for entry in skills if entry.default), SKILLS_ON_REQUEST + on_request + "\n",
+                      *(entry.text for entry in library.values() if entry.kind == "tool")])
+
+
+LIBRARY = load_prompts()
+SKILLS = {name: entry for name, entry in LIBRARY.items() if entry.kind == "skill"}
+PROMPTS = {**{name: entry.text for name, entry in LIBRARY.items()}, DEFAULT_PROMPT: default_prompt(LIBRARY)}
 CALL_BLOCK_RE = re.compile(r"```syngate[ \t]*\n(.*?)\n[ \t]*```", re.DOTALL)
 TOOLS = {"add": ("uid", "header", "description"), "edit": ("uid",), "remove": ("uid",), "move": ("uid", "to")}
-QUERIES = {"query": ("uid",), "context": ("uid",)}
+QUERIES = {"query": ("uid",), "context": ("uid",), "skill": ("name",)}
 RUNS = {"test": ("uid",)}
 CALLS = {**TOOLS, **QUERIES, **RUNS}
 EDITABLE = ("header", "description")
@@ -46,7 +77,7 @@ STRING = {"type": "string"}
 
 
 def _call_schema(tool, **optional):
-    return {"type": "object", "properties": {"tool": {"const": tool}, "uid": STRING, **optional},
+    return {"type": "object", "properties": {"tool": {"const": tool}, **{field: STRING for field in CALLS[tool]}, **optional},
             "required": ["tool", *CALLS[tool]], "additionalProperties": False}
 
 
@@ -64,6 +95,7 @@ ANSWER_SCHEMA = {
             _call_schema("move", to=STRING, before=STRING, link={"type": "boolean"}, **{"from": STRING}),
             _call_schema("query"),
             _call_schema("context"),
+            _call_schema("skill"),
             _call_schema("test", name=STRING),
         ]}},
     },
@@ -139,8 +171,15 @@ class protocol_error(ValueError):
     pass
 
 
+def call_target(anchor, call):
+    """What a call addresses, as its refusal names it: the item, `@` standing for the anchored one, or the skill."""
+    if "uid" not in call:
+        return call["name"]
+    return anchor if call["uid"] == "@" else call["uid"]
+
+
 def parse_reply(reply):
-    """("chat", text) for a plain answer, ("calls", [call, ...]) for one batch of Syngate API calls: a structured answer
+    """("chat", text) for a plain answer, ("calls", [call, ...]) for one batch of tool calls: a structured answer
     shaped by `ANSWER_SCHEMA`, or text holding exactly one ```syngate block; anything mixed or malformed is refused."""
     if isinstance(reply, dict):
         calls = reply.get("calls")
@@ -181,9 +220,13 @@ def apply_call(items, anchor, call, syngate_dir=None):
     standing over the changed content, so the user meets a violated review
     rather than a silently unreviewed item."""
     at = lambda value: anchor if value == "@" else value
-    tool, uid = call["tool"], at(call["uid"])
+    tool, uid = call["tool"], at(call.get("uid"))
     if tool in RUNS:
         raise syngatelib.tree_error(f"{tool} runs through the page's runner, not against the tree")
+    if tool == "skill":
+        if call["name"] not in SKILLS:
+            raise syngatelib.tree_error(f"unknown skill '{call['name']}'")
+        return f"- skill {call['name']}:\n{SKILLS[call['name']].text}"
     if tool == "query":
         return f"- {uid}: {json.dumps(item_view(items, uid), ensure_ascii=False)}"
     if tool == "context":
@@ -262,17 +305,16 @@ class claude_code_connector:
 
     def dispatch(self, context, text, model=None, effort=None, modes=(), session=None):
         """(answer, session id) of one non-interactive `claude -p` turn, the answer being the structured output shaped by
-        `ANSWER_SCHEMA`, else the reply text; `session` continues an earlier one. The turn lasts until the process exits:
-        a subagent or workflow launched in it is awaited by the CLI, which answers again on its report, and the answer of the
-        turn is that last one."""
+        `ANSWER_SCHEMA`, else the reply text; the seed context, headed by the default prompt, is the appended system prompt
+        and `session` continues an earlier one. The turn lasts until the process exits: a subagent or workflow launched in
+        it is awaited by the CLI, which answers again on its report, and the answer of the turn is that last one."""
         permission = next((self.modes[mode][3] for mode in modes if self.modes[mode][3]), None)
         tools = list(dict.fromkeys([*self.always_allowed, *(tool for mode in modes for tool in self.modes[mode][4])]))
         with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8") as seed:
             seed.write(context)
             seed.flush()
             argv = [*self.cli, "-p", text, "--output-format", "json", "--json-schema", json.dumps(ANSWER_SCHEMA),
-                    "--append-system-prompt-file", seed.name, "--append-system-prompt", TREE_CALLS,
-                    "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+                    "--append-system-prompt-file", seed.name, "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
             for flag, value in (("--model", model), ("--effort", effort), ("--resume", session), ("--permission-mode", permission),
                                 ("--allowedTools", ",".join(tools)), ("--disallowedTools", ",".join(self.denied))):
                 if value:

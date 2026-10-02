@@ -1,7 +1,6 @@
-header: Tree call answer
+header: Tool call answer
 description: |
-  An answer shall be either plain text or exactly one block of syngate API calls. An answer carrying both, or a malformed call, shall be refused.
+  An answer shall be either plain text or exactly one block of tool calls. An answer carrying both, or a malformed call, shall be refused.
 parents: [SYNTHETIC]
 order: 50
-test: ab5f19c4d4f75e2a734ff1ebaeadeea2473858d9ddfb9a00c259f9ab8d3c1e47
-review: 5bd1dade1db8e9dfcbe5af96c8695142ee6759543363b0e809b3bcf17b5f4c50
+test: ~

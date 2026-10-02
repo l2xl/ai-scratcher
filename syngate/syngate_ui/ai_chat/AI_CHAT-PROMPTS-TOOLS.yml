@@ -1,0 +1,5 @@
+header: Tools library
+description: |
+  Tools of the prompt library. A tool prompt defines the calls — their names and fields — an answer may carry to have the harness execute a command; every tool definition is always part of the default prompt, and every call the harness accepts is defined by a tool.
+parents: [AI_CHAT-PROMPTS]
+order: 40

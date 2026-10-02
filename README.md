@@ -1,12 +1,12 @@
 # AI-Scratcher
 
-A general-purpose AI assistant of the next generation, built around deep iterative analysis of the
+A general-purpose AI assistant, built around deep iterative analysis of the
 user–AI dialog and synthesis of its content into a **Synergy Context Gate (syngate)** — a DAG of
-dialog sentences that then constructs the optimal context for the AI model, per replica of the
-dialog.
+statements about the project of chat subject that then constructs the optimal context for the AI model,
+per replica of the dialog.
 
 A conversation with AI-Scratcher starts as an ordinary AI chat. Iteratively, the dialog is
-transformed into a DAG: every sentence that survived the exchange becomes an item — a short
+transformed into a DAG: a sentence that survived the exchange becomes a node — a short
 statement with the items it follows from as parents — and the chat goes on anchored at items rather
 than at the tail of a transcript. The DAG is then the context engine: a replica anchored at an item
 is answered from the item's ancestry alone — the statements from the root down to the anchor, each
@@ -248,9 +248,15 @@ anchored at that item; every replica is one non-interactive turn of the chosen c
   `claude` CLI with the call modes (edit, internet, workflows) as its permission mode and allowed
   tools; its models and efforts are the ones the page offers.
 - **Prompt library.** The markdown files under the package's `prompts/` folder, by file stem
-  (`synthetic.PROMPTS`). `default.md` — deliberately not a `CLAUDE.md` — carries the tree call
-  protocol below and heads every seed context; `seed_context(items, uid, prompt=…)` picks another
-  by name.
+  (`synthetic.LIBRARY`), each opened by a front matter: `kind` — `skill` or `tool` — a
+  `description` and, for a skill, `default`. A *tool* defines the format of a structured answer
+  the harness recognises and turns into a call whose result reaches the model with the next turn;
+  a *skill* is additional description only — the rules of how to call a tool are themselves a
+  skill (`call_tool.md`), and so are the rules of the DAG (`syngate.md`). The default prompt
+  (`synthetic.PROMPTS["default"]`) — deliberately not a `CLAUDE.md` — is composed from the
+  library: the default skills, the list of the skills on request by name and description, then
+  every tool definition; it heads every seed context. `{"tool": "skill", "name"}` brings a skill on
+  request back as the next prompt, the way a query's result comes back.
 - **Several chats at once.** Every item has its own chat window, and any number are open at the
   same time, each running its own exchange in parallel with the others. A chat keeps its history
   and its connector session while closed, and reopening `✦ AI chat` on that item continues it; the
@@ -263,7 +269,7 @@ anchored at that item; every replica is one non-interactive turn of the chosen c
   connector without structured output carries the same list in one fenced ```` ```syngate ```` block.
   A reply that carries both, or a malformed call, is refused by the harness (HTTP 422, shown as an
   error in the chat; the session is kept, so the next replica can ask for a clean answer). The
-  protocol every connector appends to its system prompt is `synthetic.TREE_CALLS`.
+  protocol reaches every turn through the default prompt heading its seed context.
 - **Tree calls are the only way the agent touches the DAG.** The files under `syngate/` are never
   edited by the model — the Claude Code connector denies `Edit`/`Write` under `syngate/**` in every
   mode. `"@"` stands for the anchored item, every other item is addressed by its UID:
@@ -275,9 +281,10 @@ anchored at that item; every replica is one non-interactive turn of the chosen c
   places the item, `from` naming the link when the item has several parents.
 - **Queries read the DAG back the same way.** `{"tool": "query", "uid"}` returns the item's header,
   description, parents, children in sibling order and kind; `{"tool": "context", "uid"}` returns
-  its seed context. The harness sends what a batch read back into the same session as the next
-  prompt and continues the exchange with the next answer, for a bounded number of rounds
-  (`synthetic.QUERY_ROUNDS`), so the agent can look at an item's children before placing new ones.
+  its seed context; `{"tool": "skill", "name"}` the named skill of the prompt library. The harness
+  sends what a batch read back into the same session as the next prompt and continues the exchange
+  with the next answer, for a bounded number of rounds (`synthetic.QUERY_ROUNDS`), so the agent can
+  look at an item's children before placing new ones.
 - **Test runs go through the page's runner.** `{"tool": "test", "uid", "name"}` runs the routines bound
   to the leaves under the item — every `test` call of a batch joins one run, after the batch's other
   calls, and `name` narrows a leaf to one binding (the CLI spelling `syngate test UID:binding`). It is

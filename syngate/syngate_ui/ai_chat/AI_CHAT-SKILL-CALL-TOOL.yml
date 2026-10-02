@@ -1,0 +1,5 @@
+header: Tool call skill
+description: |
+  The tool call skill shall be a default skill, [src/ai_scratcher/prompts/call_tool.md](src/ai_scratcher/prompts/call_tool.md), stating how an answer requests tool calls — plain text or exactly one list of calls, as the structured object or one fenced block — and how the calls are applied in order, the first refusal stopping the batch, and their results come back as the next prompt.
+parents: [AI_CHAT-PROMPTS-SKILLS]
+test: ~

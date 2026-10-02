@@ -1,0 +1,6 @@
+header: Syngate DAG rules skill
+description: |
+  The syngate rules skill shall be a default skill stating the rules of the DAG and its items, [src/ai_scratcher/prompts/syngate.md](src/ai_scratcher/prompts/syngate.md): one testable statement per leaf or a split into children, design detail kept in linked project files, tests bound by tags equal to the item UID, and the naming of headers and UIDs.
+parents: [AI_CHAT-PROMPTS-SKILLS]
+order: 10
+test: ~

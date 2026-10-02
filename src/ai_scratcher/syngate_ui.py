@@ -392,7 +392,7 @@ class SyngateUIApp:
 
     def chat(self, data, turn=None):
         """One exchange anchored at `uid`: the item's seed context plus the user's text go to the chosen connector.
-        A plain answer comes back as the reply; an answer of Syngate API calls is applied to the tree -- its test calls joined
+        A plain answer comes back as the reply; an answer of tool calls is applied to the tree -- its test calls joined
         into one awaited run through the page's runner after the rest -- and while it carries queries or runs their results go
         back into the same session for the next answer. The reply lists everything applied.
         `history` is the kept part of an exchange whose session was dropped: it travels with the text of the first round.
@@ -418,7 +418,7 @@ class SyngateUIApp:
             if kind == "chat":
                 return {"ok": True, "reply": "\n".join([*applied, payload]), "session": session, **({"calls": calls} if calls else {})}
             items, results = self._load(), []
-            named = lambda call: uid if call["uid"] == "@" else call["uid"]
+            named = lambda call: synthetic.call_target(uid, call)
             refused = lambda err, line: ApiError(err.status, "\n".join([*applied, *results, f"{line} refused: {err}"]), session=session)
             runs = [call for call in payload if synthetic.is_run(call)]
             for call in payload:

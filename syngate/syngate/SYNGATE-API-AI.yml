@@ -1,10 +1,6 @@
-header: Syngate API  AI harness
+header: Syngate API tool
 description: |
-  Structured AI answer is parsed for requested syngate API calls and then proxied transparently.
-  1. Answer format: the whole answer is either plain text or exactly one list of calls and nothing else — the structured object `{"kind": "calls", "calls": [...]}`, or one fenced block tagged `syngate` holding the JSON list. Each call is an object with `tool`: the writes `add` (`uid`, `parent`, `header`, `description`, `kind` leaf|branch), `edit` (`uid`, `header` and/or `description`), `remove` (`uid`), `move` (`uid`, `to`, `before`, `from`, `link`); the reads `query` (`uid`) and `context` (`uid`); the run `test` (`uid`, `name`). `@` stands for the anchored item and any other item is addressed by its UID. The calls are applied in order through the syngate API; the first refused call stops the batch, and the applied part is reported with the refusal.
-  2. What a read or a run produced is not the AI's answer but its next prompt: the harness places the results into the same session as the next message and the exchange goes on with the next answer, for a bounded number of rounds.
-  3. In the cases user made UI changes to syngate items clears the review, AI initiated changes makes the review violated in order to highlight the change.
-parents: [SYNTHETIC-020]
-order: -10
-test: ed07a67c41888d305e53bd201253fa053ab028719c18cf65171a75709a92830c
-review: 6d233d92498462bd17f7a226b243316e643415ecb04fa557f9b23126abf57481
+  The syngate API as a tool of the prompt library, [src/ai_scratcher/prompts/syngate_api.md](src/ai_scratcher/prompts/syngate_api.md): a call addresses an item by UID, `@` standing for the anchored one, and is applied through the syngate API — the writes `add` (`uid`, `parent`, `header`, `description`, `kind` leaf|branch), `edit` (`uid`, `header` and/or `description`), `remove` (`uid`), `move` (`uid`, `to`, `before`, `from`, `link`); the reads `query` (`uid`) and `context` (`uid`); the run `test` (`uid` or glob, `name` narrowing a leaf to one binding), which runs the bound routines through the same runner as the page's ▶ run — every `test` call of a batch joins one run performed after the other calls, and a run live elsewhere refuses it — and hands the outcome back as the next message: one line per leaf binding with pass/fail, then the output of every failed routine. A write of the AI shall never clear a review stamp: the stamp is left standing over the changed content so the change reads as a violated review for the user to settle, where the user's own edit in the page clears it. Review stamping stays the user's act: there is no review call.
+parents: [SYNTHETIC-020, AI_CHAT-PROMPTS-TOOLS]
+order: 10
+test: ~
