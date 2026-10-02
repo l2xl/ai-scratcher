@@ -3,5 +3,5 @@ description: |
   The Claude Code connector shall carry the seed context — headed by the default prompt, which defines the tool calls — as the appended system prompt of the turn, and deny direct edits of the files under syngate/ in every mode.
 parents: [CLAUDE_CODE]
 order: 50
-test: b11a54735504da84aa44b74879a7b00c49c333e28fd47adb4983a4f0183f912c
-review: a95ac8859e8e9e8b9233d919579bf61a094d0726728256d23f2d8103d5e3caee
+test: 9fcfd8dbba33e484f1bd8c33aad44f7d3663e0fb0669555c3faae3bfca5a4e27
+review: 2d2f0f42cf875aaff7de067f4c215e56a264e07afc04a4a870239597dc56f0ce

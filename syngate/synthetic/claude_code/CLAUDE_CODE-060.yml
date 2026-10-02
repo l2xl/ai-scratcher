@@ -3,5 +3,5 @@ description: |
   The Claude Code connector shall hand the calls of the tool library to the turn as the JSON schema of its structured answer and return that structured output in place of the reply text.
 parents: [CLAUDE_CODE]
 order: 60
-test: c45d7ed73c7f8e8526f19055d8ff0a99bf7af8f1c50c41b4e4e3cc04a249874d
-review: 533c1ac935d4210245b65accd47403bd15bb748a9b97237b83f759118893ab24
+test: 6aac1534e6e2c2cb407c7009274ede287be726811ee9d8f4747a4dd71f8b2806
+review: e2db79cecce03414e0d0b4df24b4620aa79ca2dd4017c3cc08c08382532b21c0
